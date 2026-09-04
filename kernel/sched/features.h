@@ -3,7 +3,7 @@
  * them to run sooner, but does not allow tons of sleepers to
  * rip the spread apart.
  */
-SCHED_FEAT(GENTLE_FAIR_SLEEPERS, false)
+SCHED_FEAT(GENTLE_FAIR_SLEEPERS, true)
 
 /*
  * Place new tasks ahead so that they do not starve already running
@@ -70,6 +70,12 @@ SCHED_FEAT(LB_MIN, false)
 SCHED_FEAT(ATTACH_AGE_LOAD, true)
 
 /*
+ * UtilEstimation. Use estimated CPU utilization.
+ */
+SCHED_FEAT(UTIL_EST, true)
+SCHED_FEAT(UTIL_EST_FASTUP, true)
+
+/*
  * Energy aware scheduling. Use platform energy model to guide scheduling
  * decisions optimizing for energy efficiency.
  */
@@ -78,3 +84,20 @@ SCHED_FEAT(ENERGY_AWARE, true)
 #else
 SCHED_FEAT(ENERGY_AWARE, false)
 #endif
+
+SCHED_FEAT(HISI_FILTER, true)
+
+/*
+ * Minimum capacity capping. Keep track of minimum capacity factor when
+ * minimum frequency available to a policy is modified.
+ * If enabled, this can be used to inform the scheduler about capacity
+ * restrictions.
+ */
+SCHED_FEAT(MIN_CAPACITY_CAPPING, true)
+
+/*
+ * Inflate the effective utilization of SchedTune-boosted tasks, which
+ * generally leads to usage of higher frequencies.
+ * If disabled, boosts will only bias tasks to higher-capacity CPUs.
+ */
+SCHED_FEAT(SCHEDTUNE_BOOST_UTIL, false)

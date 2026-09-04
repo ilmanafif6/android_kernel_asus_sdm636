@@ -219,10 +219,10 @@ static unsigned long ksm_pages_unshared;
 static unsigned long ksm_rmap_items;
 
 /* Number of pages ksmd should scan in one batch */
-static unsigned int ksm_thread_pages_to_scan = 250;
+static unsigned int ksm_thread_pages_to_scan = 100;
 
 /* Milliseconds ksmd should sleep between batches */
-static unsigned int ksm_thread_sleep_millisecs = 1500;
+static unsigned int ksm_thread_sleep_millisecs = 20;
 
 /* Boolean to indicate whether to use deferred timer or not */
 static bool use_deferred_timer;
@@ -317,12 +317,7 @@ static inline void free_rmap_item(struct rmap_item *rmap_item)
 
 static inline struct stable_node *alloc_stable_node(void)
 {
-	/*
-	 * The allocation can take too long with GFP_KERNEL when memory is under
-	 * pressure, which may lead to hung task warnings.  Adding __GFP_HIGH
-	 * grants access to memory reserves, helping to avoid this problem.
-	 */
-	return kmem_cache_alloc(stable_node_cache, GFP_KERNEL | __GFP_HIGH);
+	return kmem_cache_alloc(stable_node_cache, GFP_KERNEL);
 }
 
 static inline void free_stable_node(struct stable_node *stable_node)
@@ -656,7 +651,6 @@ static void remove_rmap_item_from_tree(struct rmap_item *rmap_item)
 			ksm_pages_shared--;
 
 		put_anon_vma(rmap_item->anon_vma);
-		rmap_item->head = NULL;
 		rmap_item->address &= PAGE_MASK;
 
 	} else if (rmap_item->address & UNSTABLE_FLAG) {
@@ -765,7 +759,8 @@ static int remove_stable_node(struct stable_node *stable_node)
 
 static int remove_all_stable_nodes(void)
 {
-	struct stable_node *stable_node, *next;
+	struct stable_node *stable_node;
+	struct list_head *this, *next;
 	int nid;
 	int err = 0;
 
@@ -780,7 +775,8 @@ static int remove_all_stable_nodes(void)
 			cond_resched();
 		}
 	}
-	list_for_each_entry_safe(stable_node, next, &migrate_nodes, list) {
+	list_for_each_safe(this, next, &migrate_nodes) {
+		stable_node = list_entry(this, struct stable_node, list);
 		if (remove_stable_node(stable_node))
 			err = -EBUSY;
 		cond_resched();
@@ -816,7 +812,6 @@ static int unmerge_and_remove_all_rmap_items(void)
 		}
 
 		remove_trailing_rmap_items(mm_slot, &mm_slot->rmap_list);
-		up_read(&mm->mmap_sem);
 
 		spin_lock(&ksm_mmlist_lock);
 		ksm_scan.mm_slot = list_entry(mm_slot->mm_list.next,
@@ -828,9 +823,12 @@ static int unmerge_and_remove_all_rmap_items(void)
 
 			free_mm_slot(mm_slot);
 			clear_bit(MMF_VM_MERGEABLE, &mm->flags);
+			up_read(&mm->mmap_sem);
 			mmdrop(mm);
-		} else
+		} else {
 			spin_unlock(&ksm_mmlist_lock);
+			up_read(&mm->mmap_sem);
+		}
 	}
 
 	/* Clean up stable nodes, but don't worry if some are still busy */
@@ -1073,12 +1071,6 @@ static int try_to_merge_one_page(struct vm_area_struct *vma,
 			 */
 			set_page_stable_node(page, NULL);
 			mark_page_accessed(page);
-			/*
-			 * Page reclaim just frees a clean page with no dirty
-			 * ptes: make sure that the ksm page would be swapped.
-			 */
-			if (!PageDirty(page))
-				SetPageDirty(page);
 			err = 0;
 		} else if (pages_identical(page, kpage))
 			err = replace_page(vma, page, kpage, orig_pte);
@@ -1638,11 +1630,13 @@ static struct rmap_item *scan_get_next_rmap_item(struct page **page)
 		 * so prune them once before each full scan.
 		 */
 		if (!ksm_merge_across_nodes) {
-			struct stable_node *stable_node, *next;
+			struct stable_node *stable_node;
+			struct list_head *this, *next;
 			struct page *page;
 
-			list_for_each_entry_safe(stable_node, next,
-						 &migrate_nodes, list) {
+			list_for_each_safe(this, next, &migrate_nodes) {
+				stable_node = list_entry(this,
+						struct stable_node, list);
 				page = get_ksm_page(stable_node, false);
 				if (page)
 					put_page(page);
@@ -1745,15 +1739,8 @@ next_mm:
 		up_read(&mm->mmap_sem);
 		mmdrop(mm);
 	} else {
-		up_read(&mm->mmap_sem);
-		/*
-		 * up_read(&mm->mmap_sem) first because after
-		 * spin_unlock(&ksm_mmlist_lock) run, the "mm" may
-		 * already have been freed under us by __ksm_exit()
-		 * because the "mm_slot" is still hashed and
-		 * ksm_scan.mm_slot doesn't point to it anymore.
-		 */
 		spin_unlock(&ksm_mmlist_lock);
+		up_read(&mm->mmap_sem);
 	}
 
 	/* Repeat until we've completed scanning the whole list */
@@ -2112,7 +2099,8 @@ static void wait_while_offlining(void)
 static void ksm_check_stable_tree(unsigned long start_pfn,
 				  unsigned long end_pfn)
 {
-	struct stable_node *stable_node, *next;
+	struct stable_node *stable_node;
+	struct list_head *this, *next;
 	struct rb_node *node;
 	int nid;
 
@@ -2133,7 +2121,8 @@ static void ksm_check_stable_tree(unsigned long start_pfn,
 			cond_resched();
 		}
 	}
-	list_for_each_entry_safe(stable_node, next, &migrate_nodes, list) {
+	list_for_each_safe(this, next, &migrate_nodes) {
+		stable_node = list_entry(this, struct stable_node, list);
 		if (stable_node->kpfn >= start_pfn &&
 		    stable_node->kpfn < end_pfn)
 			remove_node_from_stable_tree(stable_node);

@@ -287,9 +287,9 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
 	char buffer[256];
 	int ret = 0;
 #ifdef CONFIG_KSU_SUSFS
-    if (system_state == SYSTEM_RUNNING) {
-        ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
-    }
+	if (system_state == SYSTEM_RUNNING) {
+		ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
+	}
 #endif
 
 	/* We only trust the superuser with rebooting the system. */
@@ -520,22 +520,22 @@ static int __init reboot_setup(char *str)
 			break;
 
 		case 's':
-			if (isdigit(*(str+1)))
-				reboot_cpu = simple_strtoul(str+1, NULL, 0);
-			else if (str[1] == 'm' && str[2] == 'p' &&
-							isdigit(*(str+3)))
-				reboot_cpu = simple_strtoul(str+3, NULL, 0);
-			else
-				reboot_mode = REBOOT_SOFT;
-			if (reboot_cpu >= num_possible_cpus()) {
-				pr_err("Ignoring the CPU number in reboot= option. "
-				       "CPU %d exceeds possible cpu number %d\n",
-				       reboot_cpu, num_possible_cpus());
-				reboot_cpu = 0;
-				break;
-			}
-			break;
+		{
+			int rc;
 
+			if (isdigit(*(str+1))) {
+				rc = kstrtoint(str+1, 0, &reboot_cpu);
+				if (rc)
+					return rc;
+			} else if (str[1] == 'm' && str[2] == 'p' &&
+				   isdigit(*(str+3))) {
+				rc = kstrtoint(str+3, 0, &reboot_cpu);
+				if (rc)
+					return rc;
+			} else
+				reboot_mode = REBOOT_SOFT;
+			break;
+		}
 		case 'g':
 			reboot_mode = REBOOT_GPIO;
 			break;

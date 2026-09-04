@@ -129,34 +129,6 @@ static char *initcall_command_line;
 static char *execute_command;
 static char *ramdisk_execute_command;
 
-static unsigned int android_version = 12;
-
-static int __init set_android_version(char *val)
-{
-	get_option(&val, &android_version);
-	return 0;
-}
-__setup("androidboot.version=", set_android_version);
-
-unsigned int get_android_version(void)
-{
-	return android_version;
-}
-
-static unsigned int led_vibration = 1;
-
-static int __init set_led_vibration(char *val)
-{
-	get_option(&val, &led_vibration);
-	return 0;
-}
-__setup("led.vibration=", set_led_vibration);
-
-unsigned int get_led_vibration(void)
-{
-	return led_vibration;
-}
-
 /*
  * Used to generate warnings if static_key manipulation functions are used
  * before jump_label_init is called.
@@ -707,8 +679,6 @@ asmlinkage __visible void __init start_kernel(void)
 
 	/* Do the rest non-__init'ed, we're now alive */
 	rest_init();
-
-	prevent_tail_call_optimization();
 }
 
 /* Call all constructor functions linked into the kernel. */
@@ -833,6 +803,7 @@ int __init_or_module do_one_initcall(initcall_t fn)
 	}
 	WARN(msgbuf[0], "initcall %pF returned with %s\n", fn, msgbuf);
 
+	add_latent_entropy();
 	return ret;
 }
 
@@ -1043,7 +1014,7 @@ static noinline void __init kernel_init_freeable(void)
 	 */
 	set_cpus_allowed_ptr(current, cpu_all_mask);
 
-	cad_pid = get_pid(task_pid(current));
+	cad_pid = task_pid(current);
 
 	smp_prepare_cpus(setup_max_cpus);
 

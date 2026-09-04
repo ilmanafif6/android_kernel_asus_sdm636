@@ -462,20 +462,6 @@ static inline int is_vmalloc_or_module_addr(const void *x)
 }
 #endif
 
-extern void *kvmalloc_node(size_t size, gfp_t flags, int node);
-static inline void *kvmalloc(size_t size, gfp_t flags)
-{
-	return kvmalloc_node(size, flags, NUMA_NO_NODE);
-}
-static inline void *kvzalloc_node(size_t size, gfp_t flags, int node)
-{
-	return kvmalloc_node(size, flags | __GFP_ZERO, node);
-}
-static inline void *kvzalloc(size_t size, gfp_t flags)
-{
-	return kvmalloc(size, flags | __GFP_ZERO);
-}
-
 extern void kvfree(const void *addr);
 
 static inline void compound_lock(struct page *page)
@@ -525,6 +511,7 @@ static inline void page_mapcount_reset(struct page *page)
 
 static inline int page_mapcount(struct page *page)
 {
+	VM_BUG_ON_PAGE(PageSlab(page), page);
 	return atomic_read(&page->_mapcount) + 1;
 }
 
@@ -566,15 +553,6 @@ static inline void get_huge_page_tail(struct page *page)
 
 extern bool __get_page_tail(struct page *page);
 
-static inline int page_ref_count(struct page *page)
-{
-	return atomic_read(&page->_count);
-}
-
-/* 127: arbitrary random number, small enough to assemble well */
-#define page_ref_zero_or_close_to_overflow(page) \
-	((unsigned int) atomic_read(&page->_count) + 127u <= 127u)
-
 static inline void get_page(struct page *page)
 {
 	if (unlikely(PageTail(page)))
@@ -584,20 +562,8 @@ static inline void get_page(struct page *page)
 	 * Getting a normal page or the head of a compound page
 	 * requires to already have an elevated page->_count.
 	 */
-	VM_BUG_ON_PAGE(page_ref_zero_or_close_to_overflow(page), page);
+	VM_BUG_ON_PAGE(atomic_read(&page->_count) <= 0, page);
 	atomic_inc(&page->_count);
-}
-
-static inline __must_check bool try_get_page(struct page *page)
-{
-	if (unlikely(PageTail(page)))
-		if (likely(__get_page_tail(page)))
-			return true;
-
-	if (WARN_ON_ONCE(atomic_read(&page->_count) <= 0))
-		return false;
-	atomic_inc(&page->_count);
-	return true;
 }
 
 static inline struct page *virt_to_head_page(const void *x)
@@ -1130,6 +1096,7 @@ static inline void clear_page_pfmemalloc(struct page *page)
 #define VM_FAULT_HWPOISON 0x0010	/* Hit poisoned small page */
 #define VM_FAULT_HWPOISON_LARGE 0x0020  /* Hit poisoned large page. Index encoded in upper bits */
 #define VM_FAULT_SIGSEGV 0x0040
+#define VM_FAULT_SWAP 0x0080
 
 #define VM_FAULT_NOPAGE	0x0100	/* ->fault installed the pte, not return page */
 #define VM_FAULT_LOCKED	0x0200	/* ->fault locked the returned page */
@@ -1218,10 +1185,6 @@ void unmap_vmas(struct mmu_gather *tlb, struct vm_area_struct *start_vma,
  * This has to be called after a get_task_mm()/mmget_not_zero()
  * followed by taking the mmap_sem for writing before modifying the
  * vmas or anything the coredump pretends not to change from under it.
- *
- * It also has to be called when mmgrab() is used in the context of
- * the process, but then the mm_count refcount is transferred outside
- * the context of the process to run down_write() on that pinned mm.
  *
  * NOTE: find_extend_vma() called from GUP context is the only place
  * that can modify the "mm" (notably the vm_start/end) under mmap_sem
@@ -1988,7 +1951,6 @@ extern int __meminit init_per_zone_wmark_min(void);
 extern void mem_init(void);
 extern void __init mmap_init(void);
 extern void show_mem(unsigned int flags);
-extern long si_mem_available(void);
 extern void si_meminfo(struct sysinfo * val);
 extern void si_meminfo_node(struct sysinfo *val, int nid);
 
@@ -2576,9 +2538,6 @@ struct reclaim_param {
 };
 extern struct reclaim_param reclaim_task_anon(struct task_struct *task,
 		int nr_to_reclaim);
-extern int reclaim_pte_range(pmd_t *pmd, unsigned long addr,
-				unsigned long end, struct mm_walk *walk);
-extern unsigned long reclaim_global(unsigned long nr_to_reclaim);
 #endif
 
 #endif /* __KERNEL__ */

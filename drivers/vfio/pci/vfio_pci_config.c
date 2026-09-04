@@ -698,8 +698,7 @@ static int vfio_vpd_config_write(struct vfio_pci_device *vdev, int pos,
 		if (pci_write_vpd(pdev, addr & ~PCI_VPD_ADDR_F, 4, &data) != 4)
 			return count;
 	} else {
-		data = 0;
-		if (pci_read_vpd(pdev, addr, 4, &data) < 0)
+		if (pci_read_vpd(pdev, addr, 4, &data) != 4)
 			return count;
 		*pdata = cpu_to_le32(data);
 	}
@@ -1405,12 +1404,7 @@ static int vfio_cap_init(struct vfio_pci_device *vdev)
 		if (ret)
 			return ret;
 
-		/*
-		 * ID 0 is a NULL capability, conflicting with our fake
-		 * PCI_CAP_ID_BASIC.  As it has no content, consider it
-		 * hidden for now.
-		 */
-		if (cap && cap <= PCI_CAP_ID_MAX) {
+		if (cap <= PCI_CAP_ID_MAX) {
 			len = pci_cap_length[cap];
 			if (len == 0xFF) { /* Variable length */
 				len = vfio_cap_len(vdev, cap, pos);
@@ -1488,7 +1482,7 @@ static int vfio_ecap_init(struct vfio_pci_device *vdev)
 			if (len == 0xFF) {
 				len = vfio_ext_cap_len(vdev, ecap, epos);
 				if (len < 0)
-					return len;
+					return ret;
 			}
 		}
 
@@ -1649,11 +1643,8 @@ void vfio_config_free(struct vfio_pci_device *vdev)
 	vdev->vconfig = NULL;
 	kfree(vdev->pci_config_map);
 	vdev->pci_config_map = NULL;
-	if (vdev->msi_perm) {
-		free_perm_bits(vdev->msi_perm);
-		kfree(vdev->msi_perm);
-		vdev->msi_perm = NULL;
-	}
+	kfree(vdev->msi_perm);
+	vdev->msi_perm = NULL;
 }
 
 /*

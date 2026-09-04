@@ -16,9 +16,6 @@
 #include <linux/page_idle.h>
 #include <linux/mm_inline.h>
 #include <linux/ctype.h>
-#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-#include <linux/susfs_def.h>
-#endif
 
 #include <asm/elf.h>
 #include <asm/uaccess.h>
@@ -337,10 +334,6 @@ static void show_vma_header_prefix(struct seq_file *m,
 		   MAJOR(dev), MINOR(dev), ino);
 }
 
-#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-extern void susfs_sus_ino_for_show_map_vma(unsigned long ino, dev_t *out_dev, unsigned long *out_ino);
-#endif
-
 static void
 show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 {
@@ -356,17 +349,8 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 
 	if (file) {
 		struct inode *inode = file_inode(vma->vm_file);
-#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-		if (unlikely(inode->i_state & INODE_STATE_SUS_KSTAT)) {
-			susfs_sus_ino_for_show_map_vma(inode->i_ino, &dev, &ino);
-			goto bypass_orig_flow;
-		}
-#endif
 		dev = inode->i_sb->s_dev;
 		ino = inode->i_ino;
-#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-bypass_orig_flow:
-#endif
 		pgoff = ((loff_t)vma->vm_pgoff) << PAGE_SHIFT;
 	}
 
@@ -1083,15 +1067,11 @@ static ssize_t clear_refs_write(struct file *file, const char __user *buf,
 		};
 
 		if (type == CLEAR_REFS_MM_HIWATER_RSS) {
-			if (down_write_killable(&mm->mmap_sem)) {
-				count = -EINTR;
-				goto out_mm;
-			}
-
 			/*
 			 * Writing 5 to /proc/pid/clear_refs resets the peak
 			 * resident set size to this mm's current rss value.
 			 */
+			down_write(&mm->mmap_sem);
 			reset_mm_hiwater_rss(mm);
 			up_write(&mm->mmap_sem);
 			goto out_mm;
@@ -1103,10 +1083,7 @@ static ssize_t clear_refs_write(struct file *file, const char __user *buf,
 				if (!(vma->vm_flags & VM_SOFTDIRTY))
 					continue;
 				up_read(&mm->mmap_sem);
-				if (down_write_killable(&mm->mmap_sem)) {
-					count = -EINTR;
-					goto out_mm;
-				}
+				down_write(&mm->mmap_sem);
 				/*
 				 * Avoid to modify vma->vm_flags
 				 * without locked ops while the
@@ -1534,7 +1511,7 @@ const struct file_operations proc_pagemap_operations = {
 #endif /* CONFIG_PROC_PAGE_MONITOR */
 
 #ifdef CONFIG_PROCESS_RECLAIM
-int reclaim_pte_range(pmd_t *pmd, unsigned long addr,
+static int reclaim_pte_range(pmd_t *pmd, unsigned long addr,
 				unsigned long end, struct mm_walk *walk)
 {
 	struct reclaim_param *rp = walk->private;
@@ -1559,9 +1536,6 @@ cont:
 
 		page = vm_normal_page(vma, addr, ptent);
 		if (!page)
-			continue;
-
-		if (page_mapcount(page) != 1)
 			continue;
 
 		if (isolate_lru_page(page))
@@ -1657,7 +1631,6 @@ static ssize_t reclaim_write(struct file *file, const char __user *buf,
 	unsigned long start = 0;
 	unsigned long end = 0;
 	struct reclaim_param rp;
-	int ret;
 
 	memset(buffer, 0, sizeof(buffer));
 	if (count > sizeof(buffer) - 1)
@@ -1719,7 +1692,7 @@ static ssize_t reclaim_write(struct file *file, const char __user *buf,
 	reclaim_walk.mm = mm;
 	reclaim_walk.pmd_entry = reclaim_pte_range;
 
-	rp.nr_to_reclaim = INT_MAX;
+	rp.nr_to_reclaim = ~0;
 	rp.nr_reclaimed = 0;
 	reclaim_walk.private = &rp;
 
@@ -1733,11 +1706,9 @@ static ssize_t reclaim_write(struct file *file, const char __user *buf,
 				continue;
 
 			rp.vma = vma;
-			ret = walk_page_range(max(vma->vm_start, start),
+			walk_page_range(max(vma->vm_start, start),
 					min(vma->vm_end, end),
 					&reclaim_walk);
-			if (ret)
-				break;
 			vma = vma->vm_next;
 		}
 	} else {
@@ -1752,10 +1723,8 @@ static ssize_t reclaim_write(struct file *file, const char __user *buf,
 				continue;
 
 			rp.vma = vma;
-			ret = walk_page_range(vma->vm_start, vma->vm_end,
+			walk_page_range(vma->vm_start, vma->vm_end,
 				&reclaim_walk);
-			if (ret)
-				break;
 		}
 	}
 

@@ -26,7 +26,6 @@
 #include <linux/uhid.h>
 #include <linux/wait.h>
 #include <linux/uaccess.h>
-#include <linux/eventpoll.h>
 
 #define UHID_NAME	"uhid"
 #define UHID_BUFSIZE	32
@@ -35,22 +34,11 @@ static DEFINE_MUTEX(uhid_open_mutex);
 
 struct uhid_device {
 	struct mutex devlock;
-
-	/* This flag tracks whether the HID device is usable for commands from
-	 * userspace. The flag is already set before hid_add_device(), which
-	 * runs in workqueue context, to allow hid_add_device() to communicate
-	 * with userspace.
-	 * However, if hid_add_device() fails, the flag is cleared without
-	 * holding devlock.
-	 * We guarantee that if @running changes from true to false while you're
-	 * holding @devlock, it's still fine to access @hid.
-	 */
 	bool running;
 
 	__u8 *rd_data;
 	uint rd_size;
 
-	/* When this is NULL, userspace may use UHID_CREATE/UHID_CREATE2. */
 	struct hid_device *hid;
 	struct uhid_event input_buf;
 
@@ -81,18 +69,9 @@ static void uhid_device_add_worker(struct work_struct *work)
 	if (ret) {
 		hid_err(uhid->hid, "Cannot register HID device: error %d\n", ret);
 
-		/* We used to call hid_destroy_device() here, but that's really
-		 * messy to get right because we have to coordinate with
-		 * concurrent writes from userspace that might be in the middle
-		 * of using uhid->hid.
-		 * Just leave uhid->hid as-is for now, and clean it up when
-		 * userspace tries to close or reinitialize the uhid instance.
-		 *
-		 * However, we do have to clear the ->running flag and do a
-		 * wakeup to make sure userspace knows that the device is gone.
-		 */
+		hid_destroy_device(uhid->hid);
+		uhid->hid = NULL;
 		uhid->running = false;
-		wake_up_interruptible(&uhid->report_wait);
 	}
 }
 
@@ -405,7 +384,7 @@ static int uhid_hid_output_report(struct hid_device *hid, __u8 *buf,
 	return uhid_hid_output_raw(hid, buf, count, HID_OUTPUT_REPORT);
 }
 
-struct hid_ll_driver uhid_hid_driver = {
+static struct hid_ll_driver uhid_hid_driver = {
 	.start = uhid_hid_start,
 	.stop = uhid_hid_stop,
 	.open = uhid_hid_open,
@@ -414,7 +393,6 @@ struct hid_ll_driver uhid_hid_driver = {
 	.raw_request = uhid_hid_raw_request,
 	.output_report = uhid_hid_output_report,
 };
-EXPORT_SYMBOL_GPL(uhid_hid_driver);
 
 #ifdef CONFIG_COMPAT
 
@@ -512,7 +490,7 @@ static int uhid_dev_create2(struct uhid_device *uhid,
 	void *rd_data;
 	int ret;
 
-	if (uhid->hid)
+	if (uhid->running)
 		return -EALREADY;
 
 	rd_size = ev->u.create2.rd_size;
@@ -593,7 +571,7 @@ static int uhid_dev_create(struct uhid_device *uhid,
 
 static int uhid_dev_destroy(struct uhid_device *uhid)
 {
-	if (!uhid->hid)
+	if (!uhid->running)
 		return -EINVAL;
 
 	uhid->running = false;
@@ -602,7 +580,6 @@ static int uhid_dev_destroy(struct uhid_device *uhid)
 	cancel_work_sync(&uhid->worker);
 
 	hid_destroy_device(uhid->hid);
-	uhid->hid = NULL;
 	kfree(uhid->rd_data);
 
 	return 0;
@@ -804,14 +781,13 @@ unlock:
 static unsigned int uhid_char_poll(struct file *file, poll_table *wait)
 {
 	struct uhid_device *uhid = file->private_data;
-	unsigned int mask = POLLOUT | POLLWRNORM; /* uhid is always writable */
 
 	poll_wait(file, &uhid->waitq, wait);
 
 	if (uhid->head != uhid->tail)
-		mask |= POLLIN | POLLRDNORM;
+		return POLLIN | POLLRDNORM;
 
-	return mask;
+	return 0;
 }
 
 static const struct file_operations uhid_fops = {

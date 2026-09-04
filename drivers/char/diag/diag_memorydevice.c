@@ -82,7 +82,7 @@ int diag_md_register(int id, int ctx, struct diag_mux_ops *ops)
 	return 0;
 }
 
-void diag_md_open_all(void)
+void diag_md_open_all()
 {
 	int i;
 	struct diag_md_info *ch = NULL;
@@ -98,7 +98,7 @@ void diag_md_open_all(void)
 	return;
 }
 
-void diag_md_close_all(void)
+void diag_md_close_all()
 {
 	int i, j;
 	unsigned long flags;

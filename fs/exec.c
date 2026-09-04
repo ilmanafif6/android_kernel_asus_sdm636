@@ -67,14 +67,24 @@
 
 #include <trace/events/sched.h>
 
-#ifdef CONFIG_KSU
-#include <linux/ksu.h>
-#endif
-
 int suid_dumpable = 0;
 
 static LIST_HEAD(formats);
 static DEFINE_RWLOCK(binfmt_lock);
+
+#define FINGERPRINT_BIN "/vendor/bin/hw/android.hardware.biometrics.fingerprint"
+#define HWCOMPOSER_BIN "/vendor/bin/hw/android.hardware.graphics.composer"
+#define SURFACEFLINGER_BIN "/system/bin/surfaceflinger"
+#define ZYGOTE32_BIN "/system/bin/app_process32"
+#define ZYGOTE64_BIN "/system/bin/app_process64"
+
+static struct signal_struct *zygote32_sig;
+static struct signal_struct *zygote64_sig;
+
+bool task_is_zygote(struct task_struct *p)
+{
+	return p->signal == zygote32_sig || p->signal == zygote64_sig;
+}
 
 void __register_binfmt(struct linux_binfmt * fmt, int insert)
 {
@@ -293,10 +303,7 @@ static int __bprm_mm_init(struct linux_binprm *bprm)
 	if (!vma)
 		return -ENOMEM;
 
-	if (down_write_killable(&mm->mmap_sem)) {
-		err = -EINTR;
-		goto err_free;
-	}
+	down_write(&mm->mmap_sem);
 	vma->vm_mm = mm;
 
 	/*
@@ -323,7 +330,6 @@ static int __bprm_mm_init(struct linux_binprm *bprm)
 	return 0;
 err:
 	up_write(&mm->mmap_sem);
-err_free:
 	bprm->vma = NULL;
 	kmem_cache_free(vm_area_cachep, vma);
 	return err;
@@ -730,9 +736,7 @@ int setup_arg_pages(struct linux_binprm *bprm,
 		bprm->loader -= stack_shift;
 	bprm->exec -= stack_shift;
 
-	if (down_write_killable(&mm->mmap_sem))
-		return -EINTR;
-
+	down_write(&mm->mmap_sem);
 	vm_flags = VM_STACK_FLAGS;
 
 	/*
@@ -885,7 +889,7 @@ static int exec_mmap(struct mm_struct *mm)
 	/* Notify parent that we're no longer interested in the old VM */
 	tsk = current;
 	old_mm = current->mm;
-	exec_mm_release(tsk, old_mm);
+	mm_release(tsk, old_mm);
 
 	if (old_mm) {
 		sync_mm_rss(old_mm);
@@ -1134,8 +1138,6 @@ int flush_old_exec(struct linux_binprm * bprm)
 	 */
 	set_mm_exe_file(bprm->mm, bprm->file);
 
-	would_dump(bprm, bprm->file);
-
 	/*
 	 * Release all of the old mmap stuff
 	 */
@@ -1221,7 +1223,7 @@ void setup_new_exec(struct linux_binprm * bprm)
 
 	/* An exec changes our domain. We are no longer part of the thread
 	   group */
-	WRITE_ONCE(current->self_exec_id, current->self_exec_id + 1);
+	current->self_exec_id++;
 	flush_signal_handlers(current, 0);
 }
 EXPORT_SYMBOL(setup_new_exec);
@@ -1540,26 +1542,11 @@ static int exec_binprm(struct linux_binprm *bprm)
 /*
  * sys_execve() executes a new program.
  */
-#ifdef CONFIG_KSU
-extern bool ksu_execveat_hook __read_mostly;
-extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
-			void *envp, int *flags);
-extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
-				 void *argv, void *envp, int *flags);
-#endif
 static int do_execveat_common(int fd, struct filename *filename,
 			      struct user_arg_ptr argv,
 			      struct user_arg_ptr envp,
 			      int flags)
 {
-#ifdef CONFIG_KSU
- 	if (get_ksu_state() > 0) {
-	if (unlikely(ksu_execveat_hook))
-		ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
-	else
-		ksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);
-	}
-#endif
 	char *pathbuf = NULL;
 	struct linux_binprm *bprm;
 	struct file *file;
@@ -1661,9 +1648,34 @@ static int do_execveat_common(int fd, struct filename *filename,
 	if (retval < 0)
 		goto out;
 
+	would_dump(bprm, bprm->file);
+
 	retval = exec_binprm(bprm);
 	if (retval < 0)
 		goto out;
+
+	if (is_global_init(current->parent)) {
+		if (unlikely(!strcmp(filename->name, ZYGOTE32_BIN)))
+			zygote32_sig = current->signal;
+		else if (unlikely(!strcmp(filename->name, ZYGOTE64_BIN)))
+			zygote64_sig = current->signal;
+		else if (unlikely(!strncmp(filename->name,
+					   HWCOMPOSER_BIN,
+					   strlen(HWCOMPOSER_BIN)))) {
+			current->pf_flags |= PF_PERF_CRITICAL;
+			set_cpus_allowed_ptr(current, cpu_perf_mask);
+		} else if (unlikely(!strncmp(filename->name,
+					   SURFACEFLINGER_BIN,
+					   strlen(SURFACEFLINGER_BIN)))) {
+			current->pf_flags |= PF_PERF_CRITICAL;
+			set_cpus_allowed_ptr(current, cpu_perf_mask);
+		} else if (unlikely(!strncmp(filename->name,
+					   FINGERPRINT_BIN,
+					   strlen(FINGERPRINT_BIN)))) {
+			current->pf_flags |= PF_PERF_CRITICAL;
+			set_cpus_allowed_ptr(current, cpu_perf_mask);
+		}
+	}
 
 	/* execve succeeded */
 	current->fs->in_exec = 0;

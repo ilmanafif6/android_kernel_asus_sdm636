@@ -82,18 +82,6 @@ static int ovl_getattr(struct vfsmount *mnt, struct dentry *dentry,
 			 struct kstat *stat)
 {
 	struct path realpath;
-	const struct cred *old_cred;
- 	int err;
-
-#ifdef CONFIG_KSU_SUSFS_SUS_OVERLAYFS
-	ovl_path_lowerdata(dentry, &realpath);
-	if (likely(realpath.mnt && realpath.dentry)) {
-		old_cred = ovl_override_creds(dentry->d_sb);
-		err = vfs_getattr(&realpath, stat);
-		ovl_revert_creds(old_cred);
-		return err;
-	}
-#endif
 
 	ovl_path_real(dentry, &realpath);
 	return vfs_getattr(&realpath, stat);
@@ -104,6 +92,7 @@ int ovl_permission(struct inode *inode, int mask)
 	struct ovl_entry *oe;
 	struct dentry *alias = NULL;
 	struct inode *realinode;
+	const struct cred *old_cred;
 	struct dentry *realdentry;
 	bool is_upper;
 	int err;
@@ -156,7 +145,18 @@ int ovl_permission(struct inode *inode, int mask)
 			goto out_dput;
 	}
 
+	/*
+	 * Check overlay inode with the creds of task and underlying inode
+	 * with creds of mounter
+	 */
+	err = generic_permission(inode, mask);
+	if (err)
+		goto out_dput;
+
+	old_cred = ovl_override_creds(inode->i_sb);
 	err = __inode_permission(realinode, mask);
+	revert_creds(old_cred);
+
 out_dput:
 	dput(alias);
 	return err;

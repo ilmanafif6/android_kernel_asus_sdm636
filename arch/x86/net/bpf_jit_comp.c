@@ -15,6 +15,8 @@
 #include <asm/nospec-branch.h>
 #include <linux/bpf.h>
 
+int bpf_jit_enable __read_mostly;
+
 /*
  * assembly code in arch/x86/net/bpf_jit.S
  */
@@ -143,19 +145,6 @@ static bool is_ereg(u32 reg)
 			     BIT(BPF_REG_9));
 }
 
-/*
- * is_ereg_8l() == true if BPF register 'reg' is mapped to access x86-64
- * lower 8-bit registers dil,sil,bpl,spl,r8b..r15b, which need extra byte
- * of encoding. al,cl,dl,bl have simpler encoding.
- */
-static bool is_ereg_8l(u32 reg)
-{
-	return is_ereg(reg) ||
-	    (1 << reg) & (BIT(BPF_REG_1) |
-			  BIT(BPF_REG_2) |
-			  BIT(BPF_REG_FP));
-}
-
 /* add modifiers if 'reg' maps to x64 registers r8..r15 */
 static u8 add_1mod(u8 byte, u32 reg)
 {
@@ -205,7 +194,7 @@ struct jit_context {
 	 32 /* space for rbx, r13, r14, r15 */ + \
 	 8 /* space for skb_copy_bits() buffer */)
 
-#define PROLOGUE_SIZE 48
+#define PROLOGUE_SIZE 51
 
 /* emit x64 prologue code for BPF program and check it's size.
  * bpf_tail_call helper will skip it while jumping into another program
@@ -241,15 +230,11 @@ static void emit_prologue(u8 **pprog)
 	/* mov qword ptr [rbp-X],r15 */
 	EMIT3_off32(0x4C, 0x89, 0xBD, -STACKSIZE + 24);
 
-	/* Clear the tail call counter (tail_call_cnt): for eBPF tail calls
-	 * we need to reset the counter to 0. It's done in two instructions,
-	 * resetting rax register to 0 (xor on eax gets 0 extended), and
-	 * moving it to the counter location.
-	 */
+	/* clear A and X registers */
+	EMIT2(0x31, 0xc0); /* xor eax, eax */
+	EMIT3(0x4D, 0x31, 0xED); /* xor r13, r13 */
 
-	/* xor eax, eax */
-	EMIT2(0x31, 0xc0);
-	/* mov qword ptr [rbp-X], rax */
+	/* clear tail_cnt: mov qword ptr [rbp-X], rax */
 	EMIT3_off32(0x48, 0x89, 0x85, -STACKSIZE + 32);
 
 	BUILD_BUG_ON(cnt != PROLOGUE_SIZE);
@@ -746,8 +731,9 @@ st:			if (is_imm8(insn->off))
 			/* STX: *(u8*)(dst_reg + off) = src_reg */
 		case BPF_STX | BPF_MEM | BPF_B:
 			/* emit 'mov byte ptr [rax + off], al' */
-			if (is_ereg(dst_reg) || is_ereg_8l(src_reg))
-				/* Add extra byte for eregs or SIL,DIL,BPL in src_reg */
+			if (is_ereg(dst_reg) || is_ereg(src_reg) ||
+			    /* have to add extra byte for x86 SIL, DIL regs */
+			    src_reg == BPF_REG_1 || src_reg == BPF_REG_2)
 				EMIT2(add_2mod(0x40, dst_reg, src_reg), 0x88);
 			else
 				EMIT1(0x88);
@@ -1040,16 +1026,7 @@ common_load:
 		}
 
 		if (image) {
-			/*
-			 * When populating the image, assert that:
-			 *
-			 *  i) We do not write beyond the allocated space, and
-			 * ii) addrs[i] did not change from the prior run, in order
-			 *     to validate assumptions made for computing branch
-			 *     displacements.
-			 */
-			if (unlikely(proglen + ilen > oldproglen ||
-				     proglen + ilen != addrs[i])) {
+			if (unlikely(proglen + ilen > oldproglen)) {
 				pr_err("bpf_jit_compile fatal error\n");
 				return -EFAULT;
 			}
@@ -1066,7 +1043,7 @@ void bpf_jit_compile(struct bpf_prog *prog)
 {
 }
 
-struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
+void bpf_int_jit_compile(struct bpf_prog *prog)
 {
 	struct bpf_binary_header *header = NULL;
 	int proglen, oldproglen = 0;
@@ -1077,14 +1054,14 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	int i;
 
 	if (!bpf_jit_enable)
-		return prog;
+		return;
 
 	if (!prog || !prog->len)
 		return;
 
 	addrs = kmalloc(prog->len * sizeof(*addrs), GFP_KERNEL);
 	if (!addrs)
-		return prog;
+		return;
 
 	/* Before first pass, make a rough estimation of addrs[]
 	 * each bpf instruction is translated to less than 64 bytes
@@ -1137,7 +1114,6 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	}
 out:
 	kfree(addrs);
-	return prog;
 }
 
 void bpf_jit_free(struct bpf_prog *fp)

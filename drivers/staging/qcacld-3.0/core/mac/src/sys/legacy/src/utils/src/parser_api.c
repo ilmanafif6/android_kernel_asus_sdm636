@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1214,9 +1214,6 @@ populate_dot11f_ext_cap(tpAniSirGlobal pMac,
 
 	if (psessionEntry && psessionEntry->enable_bcast_probe_rsp)
 		p_ext_cap->fils_capability = 1;
-
-	if (pMac->roam.configParam.btm_offload_config & BTM_OFFLOAD_ENABLED_MASK)
-		p_ext_cap->bss_transition = 1;
 
 	/* Need to calulate the num_bytes based on bits set */
 	if (pDot11f->present)
@@ -2452,25 +2449,25 @@ sir_convert_fils_data_to_probersp_struct(tpSirProbeRespBeacon probe_resp,
 }
 #endif
 
-void sir_copy_caps_info(tpAniSirGlobal mac_ctx, tDot11fFfCapabilities caps,
+void sir_copy_caps_info(tpAniSirGlobal mac_ctx, tDot11fFfCapabilities *caps,
 					    tpSirProbeRespBeacon pProbeResp)
 {
-	pProbeResp->capabilityInfo.ess = caps.ess;
-	pProbeResp->capabilityInfo.ibss = caps.ibss;
-	pProbeResp->capabilityInfo.cfPollable = caps.cfPollable;
-	pProbeResp->capabilityInfo.cfPollReq = caps.cfPollReq;
-	pProbeResp->capabilityInfo.privacy = caps.privacy;
-	pProbeResp->capabilityInfo.shortPreamble = caps.shortPreamble;
-	pProbeResp->capabilityInfo.pbcc = caps.pbcc;
-	pProbeResp->capabilityInfo.channelAgility = caps.channelAgility;
-	pProbeResp->capabilityInfo.spectrumMgt = caps.spectrumMgt;
-	pProbeResp->capabilityInfo.qos = caps.qos;
-	pProbeResp->capabilityInfo.shortSlotTime = caps.shortSlotTime;
-	pProbeResp->capabilityInfo.apsd = caps.apsd;
-	pProbeResp->capabilityInfo.rrm = caps.rrm;
-	pProbeResp->capabilityInfo.dsssOfdm = caps.dsssOfdm;
-	pProbeResp->capabilityInfo.delayedBA = caps.delayedBA;
-	pProbeResp->capabilityInfo.immediateBA = caps.immediateBA;
+	pProbeResp->capabilityInfo.ess = caps->ess;
+	pProbeResp->capabilityInfo.ibss = caps->ibss;
+	pProbeResp->capabilityInfo.cfPollable = caps->cfPollable;
+	pProbeResp->capabilityInfo.cfPollReq = caps->cfPollReq;
+	pProbeResp->capabilityInfo.privacy = caps->privacy;
+	pProbeResp->capabilityInfo.shortPreamble = caps->shortPreamble;
+	pProbeResp->capabilityInfo.pbcc = caps->pbcc;
+	pProbeResp->capabilityInfo.channelAgility = caps->channelAgility;
+	pProbeResp->capabilityInfo.spectrumMgt = caps->spectrumMgt;
+	pProbeResp->capabilityInfo.qos = caps->qos;
+	pProbeResp->capabilityInfo.shortSlotTime = caps->shortSlotTime;
+	pProbeResp->capabilityInfo.apsd = caps->apsd;
+	pProbeResp->capabilityInfo.rrm = caps->rrm;
+	pProbeResp->capabilityInfo.dsssOfdm = caps->dsssOfdm;
+	pProbeResp->capabilityInfo.delayedBA = caps->delayedBA;
+	pProbeResp->capabilityInfo.immediateBA = caps->immediateBA;
 }
 
 /**
@@ -2527,7 +2524,7 @@ tSirRetStatus sir_convert_probe_frame2_struct(tpAniSirGlobal pMac,
 	/* Beacon Interval */
 	pProbeResp->beaconInterval = pr->BeaconInterval.interval;
 
-	sir_copy_caps_info(pMac, pr->Capabilities, pProbeResp);
+	sir_copy_caps_info(pMac, &pr->Capabilities, pProbeResp);
 
 	if (!pr->SSID.present) {
 		pe_debug_rate_limited(30, "Mandatory IE SSID not present!");
@@ -5947,9 +5944,9 @@ tSirRetStatus populate_dot11f_wfatpc(tpAniSirGlobal pMac,
 tSirRetStatus populate_dot11f_beacon_report(tpAniSirGlobal pMac,
 				tDot11fIEMeasurementReport *pDot11f,
 				tSirMacBeaconReport *pBeaconReport,
-				bool is_last_frame)
+				struct rrm_beacon_report_last_beacon_params
+				*last_beacon_report_params)
 {
-	tDot11fIEbeacon_report_frm_body_fragment_id *frm_body_frag_id;
 
 	pDot11f->report.Beacon.regClass = pBeaconReport->regClass;
 	pDot11f->report.Beacon.channel = pBeaconReport->channel;
@@ -5976,29 +5973,35 @@ tSirRetStatus populate_dot11f_beacon_report(tpAniSirGlobal pMac,
 			pBeaconReport->numIes;
 	}
 
-	if (pBeaconReport->last_bcn_report_ind_support) {
-		pe_debug("Including Last Beacon Report in RRM Frame");
-		frm_body_frag_id = &pDot11f->report.Beacon.
-			beacon_report_frm_body_fragment_id;
+	if (last_beacon_report_params &&
+	    last_beacon_report_params->last_beacon_ind) {
+		pe_debug("Including Last Beacon Report in RRM Frame, report_id %d, frag_id %d",
+			last_beacon_report_params->report_id,
+			last_beacon_report_params->frag_id);
+		pDot11f->report.Beacon.beacon_report_frm_body_fragment_id.
+			present = 1;
+		pDot11f->report.Beacon.beacon_report_frm_body_fragment_id.
+			beacon_report_id = last_beacon_report_params->report_id;
+		pDot11f->report.Beacon.beacon_report_frm_body_fragment_id.
+			fragment_id_number = last_beacon_report_params->frag_id;
 
-		frm_body_frag_id->present = 1;
-		frm_body_frag_id->beacon_report_id =
-			pBeaconReport->frame_body_frag_id.id;
-		frm_body_frag_id->fragment_id_number =
-			pBeaconReport->frame_body_frag_id.frag_id;
-		frm_body_frag_id->more_fragments =
-			pBeaconReport->frame_body_frag_id.more_frags;
+		pDot11f->report.Beacon.last_beacon_report_indication.present = 1;
 
-		pDot11f->report.Beacon.last_beacon_report_indication.present =
-			1;
-
-		pDot11f->report.Beacon.last_beacon_report_indication.
-			last_fragment = is_last_frame;
-		pe_debug("id %d frag_id %d more_frags %d is_last_frame %d",
-			 frm_body_frag_id->beacon_report_id,
-			 frm_body_frag_id->fragment_id_number,
-			 frm_body_frag_id->more_fragments,
-			 is_last_frame);
+		if (last_beacon_report_params->frag_id ==
+		    (last_beacon_report_params->num_frags - 1)) {
+			pDot11f->report.Beacon.
+				beacon_report_frm_body_fragment_id.
+				more_fragments = 0;
+			pDot11f->report.Beacon.last_beacon_report_indication.
+				last_fragment = 1;
+			pe_debug("Last Fragment");
+		} else {
+			pDot11f->report.Beacon.
+				beacon_report_frm_body_fragment_id.
+				more_fragments = 1;
+			pDot11f->report.Beacon.last_beacon_report_indication.
+				last_fragment = 0;
+		}
 	}
 	return eSIR_SUCCESS;
 

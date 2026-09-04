@@ -415,7 +415,7 @@ static int ngd_xfer_msg(struct slim_controller *ctrl, struct slim_msg_txn *txn)
 	u8 la = txn->la;
 	u8 txn_mt;
 	u16 txn_mc = txn->mc;
-	u8 wbuf[SLIM_MSGQ_BUF_LEN];
+	u8 wbuf[SLIM_MSGQ_BUF_LEN] = {0};
 	bool report_sat = false;
 	bool sync_wr = true;
 
@@ -1707,7 +1707,6 @@ static int ngd_slim_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, dev);
 	slim_set_ctrldata(&dev->ctrl, dev);
 
-#ifdef CONFIG_IPC_LOGGING
 	/* Create IPC log context */
 	dev->ipc_slimbus_log = ipc_log_context_create(IPC_SLIMBUS_LOG_PAGES,
 						dev_name(dev->dev), 0);
@@ -1720,7 +1719,6 @@ static int ngd_slim_probe(struct platform_device *pdev)
 		SLIM_INFO(dev, "start logging for slim dev %s\n",
 				dev_name(dev->dev));
 	}
-#endif
 	ret = sysfs_create_file(&dev->dev->kobj, &dev_attr_debug_mask.attr);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to create dev. attr\n");

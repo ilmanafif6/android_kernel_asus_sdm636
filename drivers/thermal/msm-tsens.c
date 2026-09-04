@@ -198,9 +198,9 @@ enum tsens_tm_trip_type {
 #define TSENS_TM_WRITABLE_TRIPS_MASK ((1 << TSENS_TM_TRIP_NUM) - 1)
 
 struct tsens_thrshld_state {
-	int				high_th_state;
-	int				low_th_state;
-	int				crit_th_state;
+	enum thermal_device_mode	high_th_state;
+	enum thermal_device_mode	low_th_state;
+	enum thermal_device_mode	crit_th_state;
 	unsigned int			high_adc_code;
 	unsigned int			low_adc_code;
 	int				high_temp;
@@ -2423,7 +2423,7 @@ static int tsens_tm_probe(struct platform_device *pdev)
 	tmdev->pdev = pdev;
 
 	tmdev->tsens_critical_wq = alloc_workqueue("tsens_critical_wq",
-							WQ_HIGHPRI, 0);
+							WQ_UNBOUND, 1);
 	if (!tmdev->tsens_critical_wq) {
 		rc = -ENOMEM;
 		goto fail;

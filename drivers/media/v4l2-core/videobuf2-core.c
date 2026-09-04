@@ -886,7 +886,7 @@ void vb2_buffer_done(struct vb2_buffer *vb, enum vb2_buffer_state state)
 	atomic_dec(&q->owned_by_drv_count);
 	spin_unlock_irqrestore(&q->done_lock, flags);
 
-	//trace_vb2_buf_done(q, vb);
+	trace_vb2_buf_done(q, vb);
 
 	switch (state) {
 	case VB2_BUF_STATE_QUEUED:
@@ -1191,7 +1191,7 @@ static void __enqueue_in_driver(struct vb2_buffer *vb)
 	vb->state = VB2_BUF_STATE_ACTIVE;
 	atomic_inc(&q->owned_by_drv_count);
 
-	//trace_vb2_buf_queue(q, vb);
+	trace_vb2_buf_queue(q, vb);
 
 	/* sync buffers */
 	for (plane = 0; plane < vb->num_planes; ++plane)
@@ -1361,7 +1361,6 @@ static int vb2_start_streaming(struct vb2_queue *q)
 int vb2_core_qbuf(struct vb2_queue *q, unsigned int index, void *pb)
 {
 	struct vb2_buffer *vb;
-	enum vb2_buffer_state orig_state;
 	int ret;
 
 	if (q->error) {
@@ -1391,7 +1390,6 @@ int vb2_core_qbuf(struct vb2_queue *q, unsigned int index, void *pb)
 	 * Add to the queued buffers list, a buffer will stay on it until
 	 * dequeued in dqbuf.
 	 */
-	orig_state = vb->state;
 	list_add_tail(&vb->queued_entry, &q->queued_list);
 	q->queued_count++;
 	q->waiting_for_buffers = false;
@@ -1399,7 +1397,7 @@ int vb2_core_qbuf(struct vb2_queue *q, unsigned int index, void *pb)
 
 	call_bufop(q, set_timestamp, vb, pb);
 
-	//trace_vb2_qbuf(q, vb);
+	trace_vb2_qbuf(q, vb);
 
 	/*
 	 * If already streaming, give the buffer to driver for processing.
@@ -1422,17 +1420,8 @@ int vb2_core_qbuf(struct vb2_queue *q, unsigned int index, void *pb)
 	if (q->streaming && !q->start_streaming_called &&
 	    q->queued_count >= q->min_buffers_needed) {
 		ret = vb2_start_streaming(q);
-		if (ret) {
-			/*
-			 * Since vb2_core_qbuf will return with an error,
-			 * we should return it to state DEQUEUED since
-			 * the error indicates that the buffer wasn't queued.
-			 */
-			list_del(&vb->queued_entry);
-			q->queued_count--;
-			vb->state = orig_state;
+		if (ret)
 			return ret;
-		}
 	}
 
 	dprintk(1, "qbuf of buffer %d succeeded\n", vb->index);
@@ -1571,7 +1560,7 @@ int vb2_wait_for_all_buffers(struct vb2_queue *q)
 	}
 
 	if (q->start_streaming_called)
-		wait_event_interruptible(q->done_wq, !atomic_read(&q->owned_by_drv_count));
+		wait_event(q->done_wq, !atomic_read(&q->owned_by_drv_count));
 	return 0;
 }
 EXPORT_SYMBOL_GPL(vb2_wait_for_all_buffers);
@@ -1653,7 +1642,7 @@ int vb2_core_dqbuf(struct vb2_queue *q, void *pb, bool nonblocking)
 	list_del(&vb->queued_entry);
 	q->queued_count--;
 
-	//trace_vb2_dqbuf(q, vb);
+	trace_vb2_dqbuf(q, vb);
 
 	/* go back to dequeued state */
 	__vb2_dqbuf(vb);

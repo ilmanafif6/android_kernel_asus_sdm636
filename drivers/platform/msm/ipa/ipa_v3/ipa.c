@@ -4606,11 +4606,9 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		goto fail_mem_ctx;
 	}
 
-#ifdef CONFIG_IPC_LOGGING
 	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", 0);
 	if (ipa3_ctx->logbuf == NULL)
 		IPADBG("failed to create IPC log, continue...\n");
-#endif
 
 	ipa3_ctx->pdev = ipa_dev;
 	ipa3_ctx->uc_pdev = ipa_dev;
@@ -5949,7 +5947,7 @@ int ipa3_ap_suspend(struct device *dev)
 	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
 		if (ipa3_ctx->ep[i].sys &&
 			atomic_read(&ipa3_ctx->ep[i].sys->curr_polling_state)) {
-			IPAERR("EP %d is in polling state, do not suspend\n",
+			IPADBG("EP %d is in polling state, do not suspend\n",
 				i);
 			return -EAGAIN;
 		}

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -916,7 +916,11 @@ lim_send_sme_disassoc_ntf(tpAniSirGlobal pMac,
 					break;
 			}
 		}
-		if (sta_ds) {
+		if (sta_ds
+#ifdef WLAN_FEATURE_11W
+			&& (!sta_ds->rmfEnabled)
+#endif
+		) {
 			if (lim_add_sta(pMac, sta_ds, false, session) !=
 					eSIR_SUCCESS)
 					pe_err("could not Add STA with assocId: %d",
@@ -1510,8 +1514,9 @@ lim_send_sme_deauth_ntf(tpAniSirGlobal pMac, tSirMacAddr peerMacAddr,
 	}
 
 	/*Delete the PE session  created */
-	if ((psessionEntry != NULL) && LIM_IS_STA_ROLE(psessionEntry))
+	if (psessionEntry != NULL) {
 		pe_delete_session(pMac, psessionEntry);
+	}
 
 	lim_send_sme_disassoc_deauth_ntf(pMac, QDF_STATUS_SUCCESS,
 					 (uint32_t *) pMsg);
@@ -1662,6 +1667,85 @@ lim_send_sme_set_context_rsp(tpAniSirGlobal pMac,
 
 	pMac->lim.sme_msg_callback(pMac, &msg);
 } /*** end lim_send_sme_set_context_rsp() ***/
+
+/**
+ * lim_send_sme_neighbor_bss_ind()
+ *
+ ***FUNCTION:
+ * This function is called by lim_lookup_nadd_hash_entry() to send
+ * eWNI_SME_NEIGHBOR_BSS_IND message to host
+ *
+ ***PARAMS:
+ *
+ ***LOGIC:
+ *
+ ***ASSUMPTIONS:
+ * NA
+ *
+ ***NOTE:
+ * This function is used for sending eWNI_SME_NEIGHBOR_BSS_IND to
+ * host upon detecting new BSS during background scanning if CFG
+ * option is enabled for sending such indication
+ *
+ * @param  pMac - Pointer to Global MAC structure
+ * @return None
+ */
+
+void
+lim_send_sme_neighbor_bss_ind(tpAniSirGlobal pMac, tLimScanResultNode *pBssDescr)
+{
+	tSirMsgQ msgQ;
+	uint32_t val;
+	tSirSmeNeighborBssInd *pNewBssInd;
+
+	if ((pMac->lim.gLimSmeState != eLIM_SME_LINK_EST_WT_SCAN_STATE) ||
+	    ((pMac->lim.gLimSmeState == eLIM_SME_LINK_EST_WT_SCAN_STATE) &&
+	     pMac->lim.gLimRspReqd)) {
+		/* LIM is not in background scan state OR */
+		/* current scan is initiated by HDD. */
+		/* No need to send new BSS indication to HDD */
+		return;
+	}
+
+	if (wlan_cfg_get_int(pMac, WNI_CFG_NEW_BSS_FOUND_IND, &val) !=
+	    eSIR_SUCCESS) {
+		pe_err("could not get NEIGHBOR_BSS_IND from CFG");
+		return;
+	}
+
+	if (val == 0)
+		return;
+
+	/**
+	 * Need to indicate new BSSs found during
+	 * background scanning to host.
+	 * Allocate buffer for sending indication.
+	 * Length of buffer is length of BSS description
+	 * and length of header itself
+	 */
+	val = pBssDescr->bssDescription.length + sizeof(uint16_t) +
+		sizeof(uint32_t) + sizeof(uint8_t);
+	pNewBssInd = qdf_mem_malloc(val);
+	if (NULL == pNewBssInd) {
+		/* Log error */
+		pe_err("call to AllocateMemory failed for eWNI_SME_NEIGHBOR_BSS_IND");
+		return;
+	}
+
+	pNewBssInd->messageType = eWNI_SME_NEIGHBOR_BSS_IND;
+	pNewBssInd->length = (uint16_t) val;
+	pNewBssInd->sessionId = 0;
+
+	qdf_mem_copy((uint8_t *) pNewBssInd->bssDescription,
+		     (uint8_t *) &pBssDescr->bssDescription,
+		     pBssDescr->bssDescription.length + sizeof(uint16_t));
+
+	msgQ.type = eWNI_SME_NEIGHBOR_BSS_IND;
+	msgQ.bodyptr = pNewBssInd;
+	msgQ.bodyval = 0;
+	MTRACE(mac_trace(pMac, TRACE_CODE_TX_SME_MSG, NO_SESSION, msgQ.type));
+	lim_sys_process_mmh_msg_api(pMac, &msgQ, ePROT);
+} /*** end lim_send_sme_neighbor_bss_ind() ***/
 
 /** -----------------------------------------------------------------
    \brief lim_send_sme_addts_rsp() - sends SME ADDTS RSP
@@ -1890,8 +1974,8 @@ void lim_send_sme_pe_ese_tsm_rsp(tpAniSirGlobal pMac,
 	tpPESession pPeSessionEntry = NULL;
 
 	/* Get the Session Id based on Sta Id */
-	pPeSessionEntry = pe_find_session_by_bssid(pMac, pPeStats->bssid.bytes,
-						   &sessionId);
+	pPeSessionEntry =
+		pe_find_session_by_sta_id(pMac, pPeStats->staId, &sessionId);
 
 	/* Fill the Session Id */
 	if (NULL != pPeSessionEntry) {
@@ -2391,7 +2475,6 @@ void lim_handle_delete_bss_rsp(tpAniSirGlobal pMac, tpSirMsgQ MsgQ)
 		pe_err("Session Does not exist for given sessionID: %d",
 			pDelBss->sessionId);
 		qdf_mem_free(MsgQ->bodyptr);
-		MsgQ->bodyptr = NULL;
 		return;
 	}
 
@@ -2515,9 +2598,6 @@ lim_send_sme_ap_channel_switch_resp(tpAniSirGlobal pMac,
 	enum phy_ch_width ch_width;
 	uint8_t ch_center_freq_seg1;
 
-	qdf_runtime_pm_allow_suspend(&psessionEntry->ap_ecsa_runtime_lock);
-	qdf_wake_lock_release(&psessionEntry->ap_ecsa_wakelock, 0);
-
 	pSmeSwithChnlParams = (tSwitchChannelParams *)
 			      qdf_mem_malloc(sizeof(tSwitchChannelParams));
 	if (NULL == pSmeSwithChnlParams) {
@@ -2566,8 +2646,7 @@ lim_send_sme_ap_channel_switch_resp(tpAniSirGlobal pMac,
 	if (!is_ch_dfs) {
 		if (channelId == psessionEntry->currentOperChannel) {
 			lim_apply_configuration(pMac, psessionEntry);
-			lim_send_beacon_ind(pMac, psessionEntry,
-					    REASON_CONFIG_UPDATE);
+			lim_send_beacon_ind(pMac, psessionEntry);
 		} else {
 			pe_debug("Failed to Transmit Beacons on channel: %d after AP channel change response",
 				       psessionEntry->bcnLen);
@@ -2580,8 +2659,11 @@ void lim_process_beacon_tx_success_ind(tpAniSirGlobal mac_ctx,
 				uint16_t msg_type, void *event)
 {
 	tpPESession session;
+	cds_msg_t msg = {0};
+	struct sir_beacon_tx_complete_rsp *bcn_tx_comp_rsp;
 	tpSirFirstBeaconTxCompleteInd bcn_ind =
 		(tSirFirstBeaconTxCompleteInd *) event;
+	QDF_STATUS status;
 
 	session = pe_find_session_by_bss_idx(mac_ctx, bcn_ind->bssIdx);
 	if (session == NULL) {
@@ -2603,9 +2685,24 @@ void lim_process_beacon_tx_success_ind(tpAniSirGlobal mac_ctx,
 	    mac_ctx->sap.SapDfsInfo.sap_ch_switch_beacon_cnt))
 		lim_process_ap_ecsa_timeout(session);
 
-	if (session->gLimOperatingMode.present)
-		/* Done with nss update */
+	if (session->gLimOperatingMode.present) {
+		/* Done with nss update, send response back to SME */
 		session->gLimOperatingMode.present = 0;
+		bcn_tx_comp_rsp = (struct sir_beacon_tx_complete_rsp *)
+			qdf_mem_malloc(sizeof(*bcn_tx_comp_rsp));
+		if (NULL == bcn_tx_comp_rsp) {
+			pe_err("AllocateMemory failed for bcn_tx_comp_rsp");
+			return;
+		}
+		bcn_tx_comp_rsp->session_id = session->smeSessionId;
+		bcn_tx_comp_rsp->tx_status = QDF_STATUS_SUCCESS;
+		msg.type = eWNI_SME_NSS_UPDATE_RSP;
+		msg.bodyptr = bcn_tx_comp_rsp;
 
-	return;
+		status = cds_mq_post_message(QDF_MODULE_ID_SME, &msg);
+		if (QDF_IS_STATUS_ERROR(status)) {
+			sme_err("Failed to post eWNI_SME_NSS_UPDATE_RSP");
+			qdf_mem_free(bcn_tx_comp_rsp);
+		}
+	}
 }

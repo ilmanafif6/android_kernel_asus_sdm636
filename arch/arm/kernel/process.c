@@ -66,10 +66,12 @@ void (*arm_pm_idle)(void);
 
 void arch_cpu_idle(void)
 {
-	if (arm_pm_idle)
-		arm_pm_idle();
-	else
-		cpu_do_idle();
+	if (!need_resched()) {
+		if (arm_pm_idle)
+			arm_pm_idle();
+		else
+			cpu_do_idle();
+	}
 	local_irq_enable();
 }
 
@@ -422,8 +424,7 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 	npages = 1; /* for sigpage */
 	npages += vdso_total_pages;
 
-	if (down_write_killable(&mm->mmap_sem))
-		return -EINTR;
+	down_write(&mm->mmap_sem);
 	hint = sigpage_addr(mm, npages);
 	addr = get_unmapped_area(NULL, hint, npages << PAGE_SHIFT, 0, 0);
 	if (IS_ERR_VALUE(addr)) {

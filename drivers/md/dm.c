@@ -1944,7 +1944,7 @@ static void init_tio(struct dm_rq_target_io *tio, struct request *rq,
 	tio->error = 0;
 	memset(&tio->info, 0, sizeof(tio->info));
 	if (md->kworker_task)
-		init_kthread_work(&tio->work, map_tio_request);
+		kthread_init_work(&tio->work, map_tio_request);
 }
 
 static struct dm_rq_target_io *prep_tio(struct request *rq,
@@ -2202,7 +2202,7 @@ static void dm_request_fn(struct request_queue *q)
 	goto out;
 
 delay_and_out:
-	blk_delay_queue(q, 10);
+	blk_delay_queue(q, HZ / 100);
 out:
 	dm_put_live_table(md, srcu_idx);
 }
@@ -2303,6 +2303,7 @@ static void dm_init_md_queue(struct mapped_device *md)
 	 * - must do so here (in alloc_dev callchain) before queue is used
 	 */
 	md->queue->queuedata = md;
+	md->queue->backing_dev_info->congested_data = md;
 }
 
 static void dm_init_old_md_queue(struct mapped_device *md)
@@ -2313,7 +2314,6 @@ static void dm_init_old_md_queue(struct mapped_device *md)
 	/*
 	 * Initialize aspects of queue that aren't relevant for blk-mq
 	 */
-	md->queue->backing_dev_info->congested_data = md;
 	md->queue->backing_dev_info->congested_fn = dm_any_congested;
 	blk_queue_bounce_limit(md->queue, BLK_BOUNCE_ANY);
 }
@@ -2396,12 +2396,6 @@ static struct mapped_device *alloc_dev(int minor)
 		goto bad;
 
 	dm_init_md_queue(md);
-	/*
-	 * default to bio-based required ->make_request_fn until DM
-	 * table is loaded and md->type established. If request-based
-	 * table is loaded: blk-mq will override accordingly.
-	 */
-	blk_queue_make_request(md->queue, dm_make_request);
 
 	md->disk = alloc_disk(1);
 	if (!md->disk)
@@ -2671,7 +2665,7 @@ EXPORT_SYMBOL_GPL(dm_get_queue_limits);
 static void init_rq_based_worker_thread(struct mapped_device *md)
 {
 	/* Initialize the request-based DM worker thread */
-	init_kthread_worker(&md->kworker);
+	kthread_init_worker(&md->kworker);
 	md->kworker_task = kthread_run(kthread_worker_fn, &md->kworker,
 				       "kdmwork-%s", dm_device_name(md));
 }
@@ -2767,7 +2761,7 @@ static int dm_mq_queue_rq(struct blk_mq_hw_ctx *hctx,
 		/* clone request is allocated at the end of the pdu */
 		tio->clone = (void *)blk_mq_rq_to_pdu(rq) + sizeof(struct dm_rq_target_io);
 		(void) clone_rq(rq, md, tio, GFP_ATOMIC);
-		queue_kthread_work(&md->kworker, &tio->work);
+		kthread_queue_work(&md->kworker, &tio->work);
 	} else {
 		/* Direct call is fine since .queue_rq allows allocations */
 		if (map_request(tio, rq, md) == DM_MAPIO_REQUEUE) {
@@ -2865,6 +2859,7 @@ int dm_setup_md_queue(struct mapped_device *md)
 		break;
 	case DM_TYPE_BIO_BASED:
 		dm_init_old_md_queue(md);
+		blk_queue_make_request(md->queue, dm_make_request);
 		/*
 		 * DM handles splitting bios as needed.  Free the bio_split bioset
 		 * since it won't be used (saves 1 process per bio-based DM device).
@@ -2957,7 +2952,7 @@ static void __dm_destroy(struct mapped_device *md, bool wait)
 	blk_set_queue_dying(q);
 
 	if (dm_request_based(md) && md->kworker_task)
-		flush_kthread_worker(&md->kworker);
+		kthread_flush_worker(&md->kworker);
 
 	/*
 	 * Take suspend_lock so that presuspend and postsuspend methods
@@ -3212,7 +3207,7 @@ static int __dm_suspend(struct mapped_device *md, struct dm_table *map,
 	if (dm_request_based(md)) {
 		stop_queue(md->queue);
 		if (md->kworker_task)
-			flush_kthread_worker(&md->kworker);
+			kthread_flush_worker(&md->kworker);
 	}
 
 	flush_workqueue(md->wq);

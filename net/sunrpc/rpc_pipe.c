@@ -1347,7 +1347,6 @@ rpc_gssd_dummy_populate(struct dentry *root, struct rpc_pipe *pipe_data)
 	q.len = strlen(gssd_dummy_clnt_dir[0].name);
 	clnt_dentry = d_hash_and_lookup(gssd_dentry, &q);
 	if (!clnt_dentry) {
-		__rpc_depopulate(gssd_dentry, gssd_dummy_clnt_dir, 0, 1);
 		pipe_dentry = ERR_PTR(-ENOENT);
 		goto out;
 	}
@@ -1388,7 +1387,7 @@ rpc_fill_super(struct super_block *sb, void *data, int silent)
 {
 	struct inode *inode;
 	struct dentry *root, *gssd_dentry;
-	struct net *net = get_net(sb->s_fs_info);
+	struct net *net = data;
 	struct sunrpc_net *sn = net_generic(net, sunrpc_net_id);
 	int err;
 
@@ -1421,6 +1420,7 @@ rpc_fill_super(struct super_block *sb, void *data, int silent)
 					   sb);
 	if (err)
 		goto err_depopulate;
+	sb->s_fs_info = get_net(net);
 	mutex_unlock(&sn->pipefs_sb_lock);
 	return 0;
 
@@ -1449,8 +1449,7 @@ static struct dentry *
 rpc_mount(struct file_system_type *fs_type,
 		int flags, const char *dev_name, void *data)
 {
-	struct net *net = current->nsproxy->net_ns;
-	return mount_ns(fs_type, flags, data, net, net->user_ns, rpc_fill_super);
+	return mount_ns(fs_type, flags, current->nsproxy->net_ns, rpc_fill_super);
 }
 
 static void rpc_kill_sb(struct super_block *sb)
@@ -1470,9 +1469,9 @@ static void rpc_kill_sb(struct super_block *sb)
 					   RPC_PIPEFS_UMOUNT,
 					   sb);
 	mutex_unlock(&sn->pipefs_sb_lock);
+	put_net(net);
 out:
 	kill_litter_super(sb);
-	put_net(net);
 }
 
 static struct file_system_type rpc_pipe_fs_type = {

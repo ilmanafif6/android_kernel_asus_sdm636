@@ -18,6 +18,7 @@ config KVM
 	tristate "Kernel-based Virtual Machine (KVM) support"
 	depends on HAVE_KVM
 	select PREEMPT_NOTIFIERS
+	select ANON_INODES
 	select KVM_MMIO
 	select SRCU
 	---help---

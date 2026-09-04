@@ -364,7 +364,7 @@ FF SMPowerModeSet (1)				//7.3.1.25
      }
 }
 
-FF TSInfo (3)                             // 7.3.2.30
+FF TSInfo (4)                             // 7.3.2.30
 {
     {
         traffic_type:    1;
@@ -1399,7 +1399,7 @@ IE RSN (EID_RSN)                          // 7.3.2.25
 
 IE RSNOpaque (EID_RSN)                    // 7.3.2.25
 {
-    data[ 0..253 ];
+    data[ 6..253 ];
 }
 
 IE WAPI (EID_WAPI)                          // 7.3.2.25
@@ -3399,6 +3399,7 @@ FRAME AssocRequest                        // 7.2.3.4
     OPTIE  WFDIEOpaque;
     OPTIE  vendor_vht_ie;
     OPTIE  hs20vendor_ie;
+    OPTIE  MBO_IE;
     OPTIE  QCN_IE;
     OPTIE  osen_ie;
 } // End frame AssocRequest.

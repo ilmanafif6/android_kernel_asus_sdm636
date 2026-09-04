@@ -2247,8 +2247,6 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 					       spec_store_bypass_disable=off [X86]
 					       mds=off [X86]
 					       tsx_async_abort=off [X86]
-					       no_entry_flush [PPC]
-					       no_uaccess_flush [PPC]
 
 			auto (default)
 				Mitigate all CPU vulnerabilities, but leave SMT
@@ -2529,8 +2527,6 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 
 	noefi		Disable EFI runtime services support.
 
-	no_entry_flush	[PPC] Don't flush the L1-D cache when entering the kernel.
-
 	noexec		[IA-64]
 
 	noexec		[X86]
@@ -2591,9 +2587,6 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 
 	nospec_store_bypass_disable
 			[HW] Disable all mitigations for the Speculative Store Bypass vulnerability
-
-	no_uaccess_flush
-			[PPC] Don't flush the L1-D cache after accessing user data.
 
 	noxsave		[BUGS=X86] Disables x86 extended register state save
 			and restore using xsave. The kernel will fallback to
@@ -3349,6 +3342,44 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 			Lazy RCU callbacks are those which RCU can
 			prove do nothing more than free memory.
 
+	rcuperf.gp_exp= [KNL]
+			Measure performance of expedited synchronous
+			grace-period primitives.
+
+	rcuperf.holdoff= [KNL]
+			Set test-start holdoff period.  The purpose of
+			this parameter is to delay the start of the
+			test until boot completes in order to avoid
+			interference.
+
+	rcuperf.nreaders= [KNL]
+			Set number of RCU readers.  The value -1 selects
+			N, where N is the number of CPUs.  A value
+			"n" less than -1 selects N-n+1, where N is again
+			the number of CPUs.  For example, -2 selects N
+			(the number of CPUs), -3 selects N+1, and so on.
+			A value of "n" less than or equal to -N selects
+			a single reader.
+
+	rcuperf.nwriters= [KNL]
+			Set number of RCU writers.  The values operate
+			the same as for rcuperf.nreaders.
+			N, where N is the number of CPUs
+
+	rcuperf.perf_runnable= [BOOT]
+			Start rcuperf running at boot time.
+
+	rcuperf.shutdown= [KNL]
+			Shut the system down after performance tests
+			complete.  This is useful for hands-off automated
+			testing.
+
+	rcuperf.perf_type= [KNL]
+			Specify the RCU implementation to test.
+
+	rcuperf.verbose= [KNL]
+			Enable additional printk() statements.
+
 	rcutorture.cbflood_inter_holdoff= [KNL]
 			Set holdoff time (jiffies) between successive
 			callback-flood tests.
@@ -3472,18 +3503,35 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 	rcutorture.verbose= [KNL]
 			Enable additional printk() statements.
 
+	rcupdate.rcu_cpu_stall_suppress= [KNL]
+			Suppress RCU CPU stall warning messages.
+
+	rcupdate.rcu_cpu_stall_timeout= [KNL]
+			Set timeout for RCU CPU stall warning messages.
+
 	rcupdate.rcu_expedited= [KNL]
 			Use expedited grace-period primitives, for
 			example, synchronize_rcu_expedited() instead
 			of synchronize_rcu().  This reduces latency,
 			but can increase CPU utilization, degrade
 			real-time latency, and degrade energy efficiency.
+			No effect on CONFIG_TINY_RCU kernels.
 
-	rcupdate.rcu_cpu_stall_suppress= [KNL]
-			Suppress RCU CPU stall warning messages.
+	rcupdate.rcu_normal= [KNL]
+			Use only normal grace-period primitives,
+			for example, synchronize_rcu() instead of
+			synchronize_rcu_expedited().  This improves
+			real-time latency, CPU utilization, and
+			energy efficiency, but can expose users to
+			increased grace-period latency.  This parameter
+			overrides rcupdate.rcu_expedited.  No effect on
+			CONFIG_TINY_RCU kernels.
 
-	rcupdate.rcu_cpu_stall_timeout= [KNL]
-			Set timeout for RCU CPU stall warning messages.
+	rcupdate.rcu_normal_after_boot= [KNL]
+			Once boot has completed (that is, after
+			rcu_end_inkernel_boot() has been invoked), use
+			only normal grace-period primitives.  No effect
+			on CONFIG_TINY_RCU kernels.
 
 	rcupdate.rcu_task_stall_timeout= [KNL]
 			Set timeout in jiffies for RCU task stall warning
@@ -3872,26 +3920,6 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 	spia_fio_base=
 	spia_pedr=
 	spia_peddr=
-
-	srbds=		[X86,INTEL]
-			Control the Special Register Buffer Data Sampling
-			(SRBDS) mitigation.
-
-			Certain CPUs are vulnerable to an MDS-like
-			exploit which can leak bits from the random
-			number generator.
-
-			By default, this issue is mitigated by
-			microcode.  However, the microcode fix can cause
-			the RDRAND and RDSEED instructions to become
-			much slower.  Among other effects, this will
-			result in reduced throughput from /dev/urandom.
-
-			The microcode mitigation can be disabled with
-			the following option:
-
-			off:    Disable mitigation and remove
-				performance impact to RDRAND and RDSEED
 
 	stack_guard_gap=	[MM]
 			override the default stack gap protection. The value
@@ -4582,14 +4610,6 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 	xen_nopv	[X86]
 			Disables the PV optimizations forcing the HVM guest to
 			run as generic HVM guest with no PV drivers.
-
-	xen.event_eoi_delay=	[XEN]
-			How long to delay EOI handling in case of event
-			storms (jiffies). Default is 10.
-
-	xen.event_loop_timeout=	[XEN]
-			After which time (jiffies) the event handling loop
-			should start to delay EOI handling. Default is 2.
 
 	xirc2ps_cs=	[NET,PCMCIA]
 			Format:

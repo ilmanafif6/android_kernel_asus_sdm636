@@ -209,7 +209,7 @@ again:
 		mutex_lock(&iommu_group_mutex);
 		ida_remove(&iommu_group_ida, group->id);
 		mutex_unlock(&iommu_group_mutex);
-		kobject_put(&group->kobj);
+		kfree(group);
 		return ERR_PTR(ret);
 	}
 
@@ -368,6 +368,8 @@ static int iommu_group_create_direct_mappings(struct iommu_group *group,
 
 	}
 
+	iommu_flush_tlb_all(domain);
+
 out:
 	iommu_put_dm_regions(dev, &mappings);
 
@@ -450,7 +452,6 @@ err_put_group:
 	mutex_unlock(&group->mutex);
 	dev->iommu_group = NULL;
 	kobject_put(group->devices_kobj);
-	sysfs_remove_link(group->devices_kobj, device->name);
 err_free_name:
 	kfree(device->name);
 err_remove_link:
@@ -1467,16 +1468,19 @@ int iommu_map(struct iommu_domain *domain, unsigned long iova,
 }
 EXPORT_SYMBOL_GPL(iommu_map);
 
-size_t iommu_unmap(struct iommu_domain *domain, unsigned long iova, size_t size)
+static size_t __iommu_unmap(struct iommu_domain *domain,
+			    unsigned long iova, size_t size,
+			    bool sync)
 {
+	const struct iommu_ops *ops = domain->ops;
 	size_t unmapped_page, unmapped = 0;
 	unsigned int min_pagesz;
 	unsigned long orig_iova = iova;
 
 	trace_unmap_start(iova, 0, size);
-	if (unlikely(domain->ops->unmap == NULL ||
-		     (domain->ops->pgsize_bitmap == 0UL &&
-		      !domain->ops->get_pgsize_bitmap))) {
+	if (unlikely(ops->unmap == NULL ||
+		     (ops->pgsize_bitmap == 0UL &&
+		      !ops->get_pgsize_bitmap))) {
 		trace_unmap_end(iova, 0, size);
 		return -ENODEV;
 	}
@@ -1510,9 +1514,12 @@ size_t iommu_unmap(struct iommu_domain *domain, unsigned long iova, size_t size)
 	while (unmapped < size) {
 		size_t left = size - unmapped;
 
-		unmapped_page = domain->ops->unmap(domain, iova, left);
+		unmapped_page = ops->unmap(domain, iova, left);
 		if (!unmapped_page)
 			break;
+
+		if (sync && ops->iotlb_range_add)
+			ops->iotlb_range_add(domain, iova, left);
 
 		pr_debug("unmapped: iova 0x%lx size 0x%zx\n",
 			 iova, unmapped_page);
@@ -1521,11 +1528,27 @@ size_t iommu_unmap(struct iommu_domain *domain, unsigned long iova, size_t size)
 		unmapped += unmapped_page;
 	}
 
+	if (sync && ops->iotlb_sync)
+		ops->iotlb_sync(domain);
+
 	trace_unmap(orig_iova, size, unmapped);
 	trace_unmap_end(orig_iova, 0, size);
 	return unmapped;
 }
+
+size_t iommu_unmap(struct iommu_domain *domain,
+		   unsigned long iova, size_t size)
+{
+	return __iommu_unmap(domain, iova, size, true);
+}
 EXPORT_SYMBOL_GPL(iommu_unmap);
+
+size_t iommu_unmap_fast(struct iommu_domain *domain,
+			unsigned long iova, size_t size)
+{
+	return __iommu_unmap(domain, iova, size, false);
+}
+EXPORT_SYMBOL_GPL(iommu_unmap_fast);
 
 size_t default_iommu_map_sg(struct iommu_domain *domain, unsigned long iova,
 			 struct scatterlist *sg, unsigned int nents, int prot)
@@ -1725,9 +1748,9 @@ int iommu_request_dm_for_dev(struct device *dev)
 	int ret;
 
 	/* Device must already be in a group before calling this function */
-	group = iommu_group_get(dev);
-	if (!group)
-		return -EINVAL;
+	group = iommu_group_get_for_dev(dev);
+	if (IS_ERR(group))
+		return PTR_ERR(group);
 
 	mutex_lock(&group->mutex);
 

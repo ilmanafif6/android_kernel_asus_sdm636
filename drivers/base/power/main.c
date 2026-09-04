@@ -128,8 +128,8 @@ void device_pm_add(struct device *dev)
 	device_pm_check_callbacks(dev);
 	mutex_lock(&dpm_list_mtx);
 	if (dev->parent && dev->parent->power.is_prepared)
-		pr_debug("PM: parent %s should not be sleeping\n",
-			dev_name(dev->parent));
+		pr_debug("%s: parent %s should not be sleeping\n",
+ 			dev, dev_name(dev->parent));
 	list_add_tail(&dev->power.entry, &dpm_list);
 	mutex_unlock(&dpm_list_mtx);
 }
@@ -370,7 +370,7 @@ static void dpm_show_time(ktime_t starttime, pm_message_t state, char *info)
 	usecs = usecs64;
 	if (usecs == 0)
 		usecs = 1;
-	pr_debug("PM: %s%s%s of devices complete after %ld.%03ld msecs\n",
+	pr_info("PM: %s%s%s of devices complete after %ld.%03ld msecs\n",
 		info ?: "", info ? " " : "", pm_verb(state.event),
 		usecs / USEC_PER_MSEC, usecs % USEC_PER_MSEC);
 }
@@ -1370,17 +1370,13 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 	}
 
 	/*
-	 * Wait for possible runtime PM transitions of the device in progress
-	 * to complete and if there's a runtime resume request pending for it,
-	 * resume it before proceeding with invoking the system-wide suspend
-	 * callbacks for it.
-	 *
-	 * If the system-wide suspend callbacks below change the configuration
-	 * of the device, they must disable runtime PM for it or otherwise
-	 * ensure that its runtime-resume callbacks will not be confused by that
-	 * change in case they are invoked going forward.
+	 * If a device configured to wake up the system from sleep states
+	 * has been suspended at run time and there's a resume request pending
+	 * for it, this is equivalent to the device signaling wakeup, so the
+	 * system suspend operation should be aborted.
 	 */
-	pm_runtime_barrier(dev);
+	if (pm_runtime_barrier(dev) && device_may_wakeup(dev))
+		pm_wakeup_event(dev, 0);
 
 	if (pm_wakeup_pending()) {
 		dev->power.direct_complete = false;
@@ -1478,9 +1474,9 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 	dpm_watchdog_clear(&wd);
 
  Complete:
-	complete_all(&dev->power.completion);
 	if (error)
 		async_error = error;
+	complete_all(&dev->power.completion);
 
 	TRACE_SUSPEND(error);
 	return error;

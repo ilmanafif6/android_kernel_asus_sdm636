@@ -265,17 +265,6 @@ enum clk_osm_trace_packet_id {
 
 #define F(f, s, h, m, n) { (f), (s), (2 * (h) - 1), (m), (n) }
 
-unsigned int is_cpu_overclocked = 0;
-
-static int __init read_cpu_overclock_state(char *s)
-{
-	if (s)
-		is_cpu_overclocked = simple_strtoul(s, NULL, 0);
-
-	return 1;
-}
-__setup("overclock.cpu=", read_cpu_overclock_state);
-
 static u32 seq_instr[] = {
 	0xc2005000, 0x2c9e3b21, 0xc0ab2cdc, 0xc2882525, 0x359dc491,
 	0x700a500b, 0x5001aefc, 0xaefd7000, 0x390938c8, 0xcb44c833,
@@ -2517,38 +2506,6 @@ fail:
 	return NULL;
 }
 
-static u64 clk_osm_get_cpu_cycle_counter(int cpu)
-{
-	struct clk_osm *c;
-	u32 val;
-	unsigned long flags;
-
-	if (logical_cpu_to_clk(cpu) == pwrcl_clk.hw.clk)
-		c = &pwrcl_clk;
-	else if (logical_cpu_to_clk(cpu) == perfcl_clk.hw.clk)
-		c = &perfcl_clk;
-	else {
-		pr_err("no clock device for CPU=%d\n", cpu);
-		return 0;
-	}
-
-	spin_lock_irqsave(&c->lock, flags);
-	val = clk_osm_read_reg_no_log(c, OSM_CYCLE_COUNTER_STATUS_REG);
-
-	if (val < c->prev_cycle_counter) {
-		/* Handle counter overflow */
-		c->total_cycle_counter += UINT_MAX -
-			c->prev_cycle_counter + val;
-		c->prev_cycle_counter = val;
-	} else {
-		c->total_cycle_counter += val - c->prev_cycle_counter;
-		c->prev_cycle_counter = val;
-	}
-	spin_unlock_irqrestore(&c->lock, flags);
-
-	return c->total_cycle_counter;
-}
-
 static void populate_opp_table(struct platform_device *pdev)
 {
 	int cpu;
@@ -3131,8 +3088,8 @@ static int clk_osm_acd_init(struct clk_osm *c)
 
 static unsigned long init_rate = 300000000;
 static unsigned long osm_clk_init_rate = 200000000;
-static unsigned long pwrcl_boot_rate = 1401600000;
-static unsigned long perfcl_boot_rate = 1747200000;
+static unsigned long pwrcl_boot_rate = 1612800000;
+static unsigned long perfcl_boot_rate = 1804800000;
 
 static int clk_cpu_osm_driver_probe(struct platform_device *pdev)
 {
@@ -3147,12 +3104,6 @@ static int clk_cpu_osm_driver_probe(struct platform_device *pdev)
 	struct clk_onecell_data *clk_data;
 	char perfclspeedbinstr[] = "qcom,perfcl-speedbin0-v0";
 	char pwrclspeedbinstr[] = "qcom,pwrcl-speedbin0-v0";
-	struct cpu_cycle_counter_cb cb = {
-		.get_cpu_cycle_counter = clk_osm_get_cpu_cycle_counter,
-	};
-	
-	if (is_cpu_overclocked > 0)
-		pvs_ver = 1;
 
 	/*
 	 * Require the RPM-XO clock and GCC-HMSS-GPLL0 clocks to be registererd
@@ -3430,8 +3381,6 @@ static int clk_cpu_osm_driver_probe(struct platform_device *pdev)
 	populate_debugfs_dir(&perfcl_clk);
 
 	of_platform_populate(pdev->dev.of_node, NULL, NULL, &pdev->dev);
-
-	register_cpu_cycle_counter_cb(&cb);
 
 	pr_info("OSM driver inited\n");
 	put_online_cpus();

@@ -1195,6 +1195,8 @@ jmp_cmp:
 	return 0;
 }
 
+int bpf_jit_enable __read_mostly;
+
 void bpf_jit_compile(struct bpf_prog *fp)
 {
 	struct jit_ctx ctx;
@@ -1205,7 +1207,7 @@ void bpf_jit_compile(struct bpf_prog *fp)
 
 	memset(&ctx, 0, sizeof(ctx));
 
-	ctx.offsets = kcalloc(fp->len + 1, sizeof(*ctx.offsets), GFP_KERNEL);
+	ctx.offsets = kcalloc(fp->len, sizeof(*ctx.offsets), GFP_KERNEL);
 	if (ctx.offsets == NULL)
 		return;
 

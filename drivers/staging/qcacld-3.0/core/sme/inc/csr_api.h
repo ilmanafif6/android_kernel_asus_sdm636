@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2018 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -360,11 +360,6 @@ typedef struct tagCsrEseCckmIe {
 	uint8_t cckmIe[DOT11F_IE_RSN_MAX_LEN];
 	uint8_t cckmIeLen;
 } tCsrEseCckmIe;
-
-#define reset_cckm_info(cckm_info) \
-	qdf_mem_zero((cckm_info), sizeof(tCsrEseCckmInfo))
-#else
-#define reset_cckm_info(cckm_info)
 #endif /* FEATURE_WLAN_ESE */
 
 typedef struct sCsrChannel_ {
@@ -544,9 +539,6 @@ typedef enum {
 	eCSR_ROAM_ABORT,
 	eCSR_ROAM_NAPI_OFF,
 	eCSR_ROAM_SAE_COMPUTE,
-	/* LFR3 Roam sync complete */
-	eCSR_ROAM_SYNCH_COMPLETE,
-	eCSR_ROAM_FIPS_PMK_REQUEST,
 } eRoamCmdStatus;
 
 /* comment inside indicates what roaming callback gets */
@@ -787,8 +779,6 @@ typedef enum {
  */
 #define CSR_CB_CHANNEL_GAP 4
 #define CSR_CB_CENTER_CHANNEL_OFFSET    2
-#define CSR_SEC_CHANNEL_OFFSET    4
-
 
 /* WEP keysize (in bits) */
 typedef enum {
@@ -1046,7 +1036,6 @@ typedef struct tagCsrRoamConnectedProfile {
 	eCsrEncryptionType mcEncryptionType;
 	tCsrEncryptionList mcEncryptionInfo;
 	uint8_t operationChannel;
-	uint8_t countryCode[WNI_CFG_COUNTRY_CODE_LEN];
 	uint32_t vht_channel_width;
 	uint16_t beaconInterval;
 	tCsrKeys Keys;
@@ -1316,11 +1305,8 @@ typedef struct tagCsrConfigParam {
 	uint8_t max_amsdu_num;
 	uint8_t nSelect5GHzMargin;
 	uint32_t ho_delay_for_rx;
-	uint32_t roam_preauth_retry_count;
-	uint32_t roam_preauth_no_ack_timeout;
 	uint32_t min_delay_btw_roam_scans;
 	uint32_t roam_trigger_reason_bitmask;
-	bool roaming_scan_policy;
 	uint8_t isCoalesingInIBSSAllowed;
 #ifdef FEATURE_WLAN_MCC_TO_SCC_SWITCH
 	uint8_t cc_switch_mode;
@@ -1392,7 +1378,6 @@ typedef struct tagCsrConfigParam {
 	uint32_t edca_bk_aifs;
 	uint32_t edca_be_aifs;
 	bool enable_fatal_event;
-	bool honour_nl_scan_policy_flags;
 	enum wmi_dwelltime_adaptive_mode scan_adaptive_dwell_mode;
 	enum wmi_dwelltime_adaptive_mode scan_adaptive_dwell_mode_nc;
 	enum wmi_dwelltime_adaptive_mode roamscan_adaptive_dwell_mode;
@@ -1414,7 +1399,7 @@ typedef struct tagCsrConfigParam {
 	uint8_t fils_max_chan_guard_time;
 	uint16_t pkt_err_disconn_th;
 	bool is_bssid_hint_priority;
-	uint8_t is_force_1x1;
+	bool is_force_1x1;
 	uint16_t num_11b_tx_chains;
 	uint16_t num_11ag_tx_chains;
 	uint32_t disallow_duration;
@@ -1431,12 +1416,6 @@ typedef struct tagCsrConfigParam {
 	struct csr_neighbor_report_offload_params neighbor_report_offload;
 	bool enable_ftopen;
 	bool roam_force_rssi_trigger;
-	uint32_t btm_offload_config;
-	uint32_t btm_solicited_timeout;
-	uint32_t btm_max_attempt_cnt;
-	uint32_t btm_sticky_time;
-	uint32_t btm_query_bitmask;
-	bool disable_4way_hs_offload;
 } tCsrConfigParam;
 
 /* Tush */
@@ -1601,7 +1580,6 @@ typedef struct tagCsrRoamInfo {
 	int rx_rate;
 	tSirMacCapabilityInfo capability_info;
 	uint32_t rx_mc_bc_cnt;
-	uint16_t roam_reason;
 } tCsrRoamInfo;
 
 typedef struct tagCsrFreqScanInfo {

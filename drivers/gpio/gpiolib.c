@@ -42,11 +42,6 @@
 #define	extra_checks	0
 #endif
 
-/*
- * Number of GPIOs to use for the fast path in set array
- */
-#define FASTPATH_NGPIO CONFIG_GPIOLIB_FASTPATH_LIMIT
-
 /* gpio_lock prevents conflicts during gpio_desc[] table updates.
  * While any GPIO is requested, its gpio_chip is not removable;
  * each GPIO's "requested" flag serves as a lock and refcount.
@@ -85,6 +80,9 @@ struct gpio_desc *gpio_to_desc(unsigned gpio)
 	}
 
 	spin_unlock_irqrestore(&gpio_lock, flags);
+
+	if (!gpio_is_valid(gpio))
+		WARN(1, "invalid GPIO %d\n", gpio);
 
 	return NULL;
 }
@@ -164,14 +162,6 @@ int gpiod_get_direction(struct gpio_desc *desc)
 
 	chip = gpiod_to_chip(desc);
 	offset = gpio_chip_hwgpio(desc);
-
-	/*
-	 * Open drain emulation using input mode may incorrectly report
-	 * input here, fix that up.
-	 */
-	if (test_bit(FLAG_OPEN_DRAIN, &desc->flags) &&
-	    test_bit(FLAG_IS_OUT, &desc->flags))
-		return 0;
 
 	if (!chip->get_direction)
 		return status;
@@ -947,7 +937,7 @@ int gpiod_request(struct gpio_desc *desc, const char *label)
 	struct gpio_chip *chip;
 
 	if (!desc) {
-		pr_debug("%s: invalid GPIO\n", __func__);
+		pr_warn("%s: invalid GPIO\n", __func__);
 		return -EINVAL;
 	}
 
@@ -1105,7 +1095,7 @@ int gpiod_direction_input(struct gpio_desc *desc)
 	int			status = -EINVAL;
 
 	if (!desc || !desc->chip) {
-		pr_debug("%s: invalid GPIO\n", __func__);
+		pr_warn("%s: invalid GPIO\n", __func__);
 		return -EINVAL;
 	}
 
@@ -1121,7 +1111,7 @@ int gpiod_direction_input(struct gpio_desc *desc)
 	if (status == 0)
 		clear_bit(FLAG_IS_OUT, &desc->flags);
 
-	//trace_gpio_direction(desc_to_gpio(desc), 1, status);
+	trace_gpio_direction(desc_to_gpio(desc), 1, status);
 
 	return status;
 }
@@ -1159,8 +1149,8 @@ static int _gpiod_direction_output_raw(struct gpio_desc *desc, int value)
 	status = chip->direction_output(chip, gpio_chip_hwgpio(desc), value);
 	if (status == 0)
 		set_bit(FLAG_IS_OUT, &desc->flags);
-	//trace_gpio_value(desc_to_gpio(desc), 0, value);
-	//trace_gpio_direction(desc_to_gpio(desc), 0, status);
+	trace_gpio_value(desc_to_gpio(desc), 0, value);
+	trace_gpio_direction(desc_to_gpio(desc), 0, status);
 	return status;
 }
 
@@ -1178,7 +1168,7 @@ static int _gpiod_direction_output_raw(struct gpio_desc *desc, int value)
 int gpiod_direction_output_raw(struct gpio_desc *desc, int value)
 {
 	if (!desc || !desc->chip) {
-		pr_debug("%s: invalid GPIO\n", __func__);
+		pr_warn("%s: invalid GPIO\n", __func__);
 		return -EINVAL;
 	}
 	return _gpiod_direction_output_raw(desc, value);
@@ -1200,7 +1190,7 @@ EXPORT_SYMBOL_GPL(gpiod_direction_output_raw);
 int gpiod_direction_output(struct gpio_desc *desc, int value)
 {
 	if (!desc || !desc->chip) {
-		pr_debug("%s: invalid GPIO\n", __func__);
+		pr_warn("%s: invalid GPIO\n", __func__);
 		return -EINVAL;
 	}
 	if (test_bit(FLAG_ACTIVE_LOW, &desc->flags))
@@ -1222,7 +1212,7 @@ int gpiod_set_debounce(struct gpio_desc *desc, unsigned debounce)
 	struct gpio_chip	*chip;
 
 	if (!desc || !desc->chip) {
-		pr_debug("%s: invalid GPIO\n", __func__);
+		pr_warn("%s: invalid GPIO\n", __func__);
 		return -EINVAL;
 	}
 
@@ -1288,7 +1278,7 @@ static int _gpiod_get_raw_value(const struct gpio_desc *desc)
 	 * so we can properly propagate error codes.
 	 */
 	value = !!value;
-	//trace_gpio_value(desc_to_gpio(desc), 1, value);
+	trace_gpio_value(desc_to_gpio(desc), 1, value);
 	return value;
 }
 
@@ -1361,7 +1351,7 @@ static void _gpio_set_open_drain_value(struct gpio_desc *desc, bool value)
 		if (!err)
 			set_bit(FLAG_IS_OUT, &desc->flags);
 	}
-	//trace_gpio_direction(desc_to_gpio(desc), value, err);
+	trace_gpio_direction(desc_to_gpio(desc), value, err);
 	if (err < 0)
 		gpiod_err(desc,
 			  "%s: Error in set_value for open drain err %d\n",
@@ -1388,7 +1378,7 @@ static void _gpio_set_open_source_value(struct gpio_desc *desc, bool value)
 		if (!err)
 			clear_bit(FLAG_IS_OUT, &desc->flags);
 	}
-	//trace_gpio_direction(desc_to_gpio(desc), !value, err);
+	trace_gpio_direction(desc_to_gpio(desc), !value, err);
 	if (err < 0)
 		gpiod_err(desc,
 			  "%s: Error in set_value for open source err %d\n",
@@ -1400,7 +1390,7 @@ static void _gpiod_set_raw_value(struct gpio_desc *desc, bool value)
 	struct gpio_chip	*chip;
 
 	chip = desc->chip;
-	//trace_gpio_value(desc_to_gpio(desc), 0, value);
+	trace_gpio_value(desc_to_gpio(desc), 0, value);
 	if (test_bit(FLAG_OPEN_DRAIN, &desc->flags))
 		_gpio_set_open_drain_value(desc, value);
 	else if (test_bit(FLAG_OPEN_SOURCE, &desc->flags))
@@ -1439,7 +1429,7 @@ static void gpio_chip_set_multiple(struct gpio_chip *chip,
 	}
 }
 
-int gpiod_set_array_value_priv(bool raw, bool can_sleep,
+static void gpiod_set_array_value_priv(bool raw, bool can_sleep,
 				       unsigned int array_size,
 				       struct gpio_desc **desc_array,
 				       int *value_array)
@@ -1448,26 +1438,14 @@ int gpiod_set_array_value_priv(bool raw, bool can_sleep,
 
 	while (i < array_size) {
 		struct gpio_chip *chip = desc_array[i]->chip;
-		unsigned long fastpath[2 * BITS_TO_LONGS(FASTPATH_NGPIO)];
-		unsigned long *mask, *bits;
+		unsigned long mask[BITS_TO_LONGS(chip->ngpio)];
+		unsigned long bits[BITS_TO_LONGS(chip->ngpio)];
 		int count = 0;
-
-		if (likely(chip->ngpio <= FASTPATH_NGPIO)) {
-			mask = fastpath;
-		} else {
-			mask = kmalloc_array(2 * BITS_TO_LONGS(chip->ngpio),
-					   sizeof(*mask),
-					   can_sleep ? GFP_KERNEL : GFP_ATOMIC);
-			if (!mask)
-				return -ENOMEM;
-		}
-
-		bits = mask + BITS_TO_LONGS(chip->ngpio);
-		bitmap_zero(mask, chip->ngpio);
 
 		if (!can_sleep)
 			WARN_ON(chip->can_sleep);
 
+		memset(mask, 0, sizeof(mask));
 		do {
 			struct gpio_desc *desc = desc_array[i];
 			int hwgpio = gpio_chip_hwgpio(desc);
@@ -1475,7 +1453,7 @@ int gpiod_set_array_value_priv(bool raw, bool can_sleep,
 
 			if (!raw && test_bit(FLAG_ACTIVE_LOW, &desc->flags))
 				value = !value;
-			//trace_gpio_value(desc_to_gpio(desc), 0, value);
+			trace_gpio_value(desc_to_gpio(desc), 0, value);
 			/*
 			 * collect all normal outputs belonging to the same chip
 			 * open drain and open source outputs are set individually
@@ -1497,10 +1475,7 @@ int gpiod_set_array_value_priv(bool raw, bool can_sleep,
 		/* push collected bits to outputs */
 		if (count != 0)
 			gpio_chip_set_multiple(chip, mask, bits);
-		if (mask != fastpath)
-			kfree(mask);
 	}
-	return 0;
 }
 
 /**
@@ -1966,9 +1941,8 @@ static struct gpio_desc *gpiod_find(struct device *dev, const char *con_id,
 
 		if (chip->ngpio <= p->chip_hwnum) {
 			dev_err(dev,
-				"requested GPIO %u (%u) is out of range [0..%u] for chip %s\n",
-				idx, p->chip_hwnum, chip->ngpio - 1,
-				chip->label);
+				"requested GPIO %d is out of range [0..%d] for chip %s\n",
+				idx, chip->ngpio, chip->label);
 			return ERR_PTR(-EINVAL);
 		}
 

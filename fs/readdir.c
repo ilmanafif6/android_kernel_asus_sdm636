@@ -18,15 +18,8 @@
 #include <linux/security.h>
 #include <linux/syscalls.h>
 #include <linux/unistd.h>
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-#include <linux/susfs_def.h>
-#endif
 
 #include <asm/uaccess.h>
-
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-extern int susfs_sus_ino_for_filldir64(unsigned long ino);
-#endif
 
 int iterate_dir(struct file *file, struct dir_context *ctx)
 {
@@ -56,40 +49,6 @@ out:
 	return res;
 }
 EXPORT_SYMBOL(iterate_dir);
-
-/*
- * POSIX says that a dirent name cannot contain NULL or a '/'.
- *
- * It's not 100% clear what we should really do in this case.
- * The filesystem is clearly corrupted, but returning a hard
- * error means that you now don't see any of the other names
- * either, so that isn't a perfect alternative.
- *
- * And if you return an error, what error do you use? Several
- * filesystems seem to have decided on EUCLEAN being the error
- * code for EFSCORRUPTED, and that may be the error to use. Or
- * just EIO, which is perhaps more obvious to users.
- *
- * In order to see the other file names in the directory, the
- * caller might want to make this a "soft" error: skip the
- * entry, and return the error at the end instead.
- *
- * Note that this should likely do a "memchr(name, 0, len)"
- * check too, since that would be filesystem corruption as
- * well. However, that case can't actually confuse user space,
- * which has to do a strlen() on the name anyway to find the
- * filename length, and the above "soft error" worry means
- * that it's probably better left alone until we have that
- * issue clarified.
- */
-static int verify_dirent_name(const char *name, int len)
-{
-	if (!len)
-		return -EIO;
-	if (memchr(name, '/', len))
-		return -EIO;
-	return 0;
-}
 
 /*
  * Traditional linux readdir() handling..
@@ -200,14 +159,6 @@ static int filldir(struct dir_context *ctx, const char *name, int namlen,
 	int reclen = ALIGN(offsetof(struct linux_dirent, d_name) + namlen + 2,
 		sizeof(long));
 
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-	if (likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC) && susfs_sus_ino_for_filldir64(ino)) {
-		return 0;
-	}
-#endif
-	buf->error = verify_dirent_name(name, namlen);
-	if (unlikely(buf->error))
-		return buf->error;
 	buf->error = -EINVAL;	/* only used if we fail.. */
 	if (reclen > buf->count)
 		return -EINVAL;
@@ -292,14 +243,6 @@ static int filldir64(struct dir_context *ctx, const char *name, int namlen,
 	int reclen = ALIGN(offsetof(struct linux_dirent64, d_name) + namlen + 1,
 		sizeof(u64));
 
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-	if (likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC) && susfs_sus_ino_for_filldir64(ino)) {
-		return 0;
-	}
-#endif
-	buf->error = verify_dirent_name(name, namlen);
-	if (unlikely(buf->error))
-		return buf->error;
 	buf->error = -EINVAL;	/* only used if we fail.. */
 	if (reclen > buf->count)
 		return -EINVAL;

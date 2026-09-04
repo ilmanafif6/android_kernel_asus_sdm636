@@ -185,28 +185,17 @@ void kvm_arch_hardware_unsetup(void)
 
 int kvm_arch_init(void *opaque)
 {
-	int rc;
-
 	kvm_s390_dbf = debug_register("kvm-trace", 32, 1, 7 * sizeof(long));
 	if (!kvm_s390_dbf)
 		return -ENOMEM;
 
 	if (debug_register_view(kvm_s390_dbf, &debug_sprintf_view)) {
-		rc = -ENOMEM;
-		goto out_debug_unreg;
+		debug_unregister(kvm_s390_dbf);
+		return -ENOMEM;
 	}
 
 	/* Register floating interrupt controller interface. */
-	rc = kvm_register_device_ops(&kvm_flic_ops, KVM_DEV_TYPE_FLIC);
-	if (rc) {
-		pr_err("Failed to register FLIC rc=%d\n", rc);
-		goto out_debug_unreg;
-	}
-	return 0;
-
-out_debug_unreg:
-	debug_unregister(kvm_s390_dbf);
-	return rc;
+	return kvm_register_device_ops(&kvm_flic_ops, KVM_DEV_TYPE_FLIC);
 }
 
 void kvm_arch_exit(void)

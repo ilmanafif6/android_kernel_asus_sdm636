@@ -346,8 +346,9 @@ static void kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 	 */
 	kvm->mmu_notifier_count++;
 	need_tlb_flush = kvm_unmap_hva_range(kvm, start, end);
+	need_tlb_flush |= kvm->tlbs_dirty;
 	/* we've to flush the tlb before the pages can be freed */
-	if (need_tlb_flush || kvm->tlbs_dirty)
+	if (need_tlb_flush)
 		kvm_flush_remote_tlbs(kvm);
 
 	spin_unlock(&kvm->mmu_lock);
@@ -489,7 +490,7 @@ static struct kvm_memslots *kvm_alloc_memslots(void)
 	int i;
 	struct kvm_memslots *slots;
 
-	slots = kvzalloc(sizeof(struct kvm_memslots), GFP_KERNEL);
+	slots = kvm_kvzalloc(sizeof(struct kvm_memslots));
 	if (!slots)
 		return NULL;
 
@@ -618,6 +619,18 @@ out_err_no_disable:
 	return ERR_PTR(r);
 }
 
+/*
+ * Avoid using vmalloc for a small buffer.
+ * Should not be used when the size is statically known.
+ */
+void *kvm_kvzalloc(unsigned long size)
+{
+	if (size > PAGE_SIZE)
+		return vzalloc(size);
+	else
+		return kzalloc(size, GFP_KERNEL);
+}
+
 static void kvm_destroy_devices(struct kvm *kvm)
 {
 	struct list_head *node, *tmp;
@@ -696,7 +709,7 @@ static int kvm_create_dirty_bitmap(struct kvm_memory_slot *memslot)
 {
 	unsigned long dirty_bytes = 2 * kvm_dirty_bitmap_bytes(memslot);
 
-	memslot->dirty_bitmap = kvzalloc(dirty_bytes, GFP_KERNEL);
+	memslot->dirty_bitmap = kvm_kvzalloc(dirty_bytes);
 	if (!memslot->dirty_bitmap)
 		return -ENOMEM;
 
@@ -915,7 +928,7 @@ int __kvm_set_memory_region(struct kvm *kvm,
 			goto out_free;
 	}
 
-	slots = kvzalloc(sizeof(struct kvm_memslots), GFP_KERNEL);
+	slots = kvm_kvzalloc(sizeof(struct kvm_memslots));
 	if (!slots)
 		goto out_free;
 	memcpy(slots, __kvm_memslots(kvm, as_id), sizeof(struct kvm_memslots));
@@ -1852,11 +1865,11 @@ int kvm_write_guest_cached(struct kvm *kvm, struct gfn_to_hva_cache *ghc,
 	if (slots->generation != ghc->generation)
 		kvm_gfn_to_hva_cache_init(kvm, ghc, ghc->gpa, ghc->len);
 
-	if (kvm_is_error_hva(ghc->hva))
-		return -EFAULT;
-
 	if (unlikely(!ghc->memslot))
 		return kvm_write_guest(kvm, ghc->gpa, data, len);
+
+	if (kvm_is_error_hva(ghc->hva))
+		return -EFAULT;
 
 	r = __copy_to_user((void __user *)ghc->hva, data, len);
 	if (r)
@@ -1878,11 +1891,11 @@ int kvm_read_guest_cached(struct kvm *kvm, struct gfn_to_hva_cache *ghc,
 	if (slots->generation != ghc->generation)
 		kvm_gfn_to_hva_cache_init(kvm, ghc, ghc->gpa, ghc->len);
 
-	if (kvm_is_error_hva(ghc->hva))
-		return -EFAULT;
-
 	if (unlikely(!ghc->memslot))
 		return kvm_read_guest(kvm, ghc->gpa, data, len);
+
+	if (kvm_is_error_hva(ghc->hva))
+		return -EFAULT;
 
 	r = __copy_from_user(data, (void __user *)ghc->hva, len);
 	if (r)
@@ -3379,7 +3392,7 @@ int kvm_io_bus_register_dev(struct kvm *kvm, enum kvm_bus bus_idx, gpa_t addr,
 void kvm_io_bus_unregister_dev(struct kvm *kvm, enum kvm_bus bus_idx,
 			       struct kvm_io_device *dev)
 {
-	int i, j;
+	int i;
 	struct kvm_io_bus *new_bus, *bus;
 
 	bus = kvm->buses[bus_idx];
@@ -3396,20 +3409,17 @@ void kvm_io_bus_unregister_dev(struct kvm *kvm, enum kvm_bus bus_idx,
 
 	new_bus = kmalloc(sizeof(*bus) + ((bus->dev_count - 1) *
 			  sizeof(struct kvm_io_range)), GFP_KERNEL);
-	if (new_bus) {
-		memcpy(new_bus, bus, sizeof(*bus) + i * sizeof(struct kvm_io_range));
-		new_bus->dev_count--;
-		memcpy(new_bus->range + i, bus->range + i + 1,
-		       (new_bus->dev_count - i) * sizeof(struct kvm_io_range));
-	} else {
+	if (!new_bus)  {
 		pr_err("kvm: failed to shrink bus, removing it completely\n");
-		for (j = 0; j < bus->dev_count; j++) {
-			if (j == i)
-				continue;
-			kvm_iodevice_destructor(bus->range[j].dev);
-		}
+		goto broken;
 	}
 
+	memcpy(new_bus, bus, sizeof(*bus) + i * sizeof(struct kvm_io_range));
+	new_bus->dev_count--;
+	memcpy(new_bus->range + i, bus->range + i + 1,
+	       (new_bus->dev_count - i) * sizeof(struct kvm_io_range));
+
+broken:
 	rcu_assign_pointer(kvm->buses[bus_idx], new_bus);
 	synchronize_srcu_expedited(&kvm->srcu);
 	kfree(bus);

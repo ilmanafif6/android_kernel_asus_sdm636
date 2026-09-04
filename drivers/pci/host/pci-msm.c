@@ -6604,7 +6604,6 @@ int __init pcie_init(void)
 
 	for (i = 0; i < MAX_RC_NUM; i++) {
 		snprintf(rc_name, MAX_RC_NAME_LEN, "pcie%d-short", i);
-#ifdef CONFIG_IPC_LOGGING
 		msm_pcie_dev[i].ipc_log =
 			ipc_log_context_create(PCIE_LOG_PAGES, rc_name, 0);
 		if (msm_pcie_dev[i].ipc_log == NULL)
@@ -6634,7 +6633,6 @@ int __init pcie_init(void)
 			PCIE_DBG(&msm_pcie_dev[i],
 				"PCIe IPC logging %s is enable for RC%d\n",
 				rc_name, i);
-#endif
 		spin_lock_init(&msm_pcie_dev[i].cfg_lock);
 		msm_pcie_dev[i].cfg_access = true;
 		mutex_init(&msm_pcie_dev[i].setup_lock);
@@ -7033,7 +7031,7 @@ int msm_pcie_pm_control(enum msm_pcie_pm_opt pm_opt, u32 busnr, void *user,
 			"User of RC%d requests to resume the link\n", rc_idx);
 		if (msm_pcie_dev[rc_idx].link_status !=
 					MSM_PCIE_LINK_DISABLED) {
-			PCIE_ERR(&msm_pcie_dev[rc_idx],
+			PCIE_DBG(&msm_pcie_dev[rc_idx],
 				"PCIe: RC%d: requested to resume when link is not disabled:%d. Number of active EP(s): %d\n",
 				rc_idx, msm_pcie_dev[rc_idx].link_status,
 				msm_pcie_dev[rc_idx].num_active_ep);

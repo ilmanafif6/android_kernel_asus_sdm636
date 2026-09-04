@@ -1,5 +1,5 @@
 /*
- * drivers/power/process.c - Functions for starting/stopping processes on
+ * drivers/power/process.c - Functions for starting/stopping processes on 
  *                           suspend transitions.
  *
  * Originally from swsusp.
@@ -86,12 +86,12 @@ static int try_to_freeze_tasks(bool user_only)
 	elapsed_msecs = elapsed_msecs64;
 
 	if (wakeup) {
-		pr_cont("\n");
-		pr_err("Freezing of tasks aborted after %d.%03d seconds",
+		pr_debug("\n");
+		pr_debug("Freezing of tasks aborted after %d.%03d seconds",
 		       elapsed_msecs / 1000, elapsed_msecs % 1000);
 	} else if (todo) {
-		pr_cont("\n");
-		pr_err("Freezing of tasks failed after %d.%03d seconds"
+		pr_debug("\n");
+		pr_debug("Freezing of tasks failed after %d.%03d seconds"
 		       " (%d tasks refusing to freeze, wq_busy=%d):\n",
 		       elapsed_msecs / 1000, elapsed_msecs % 1000,
 		       todo - wq_busy, wq_busy);
@@ -143,7 +143,6 @@ int freeze_processes(void)
 	pr_cont("\n");
 	BUG_ON(in_atomic());
 
-#ifndef CONFIG_ANDROID
 	/*
 	 * Now that the whole userspace is frozen we need to disbale
 	 * the OOM killer to disallow any further interference with
@@ -151,7 +150,6 @@ int freeze_processes(void)
 	 */
 	if (!error && !oom_killer_disable())
 		error = -EBUSY;
-#endif
 
 	if (error)
 		thaw_processes();
@@ -196,9 +194,7 @@ void thaw_processes(void)
 	pm_freezing = false;
 	pm_nosig_freezing = false;
 
-#ifndef CONFIG_ANDROID
 	oom_killer_enable();
-#endif
 
 	pr_info("Restarting tasks ... ");
 

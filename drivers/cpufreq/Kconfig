@@ -46,15 +46,6 @@ config CPU_FREQ_STAT_DETAILS
 
 	  If in doubt, say N.
 
-config CPU_FREQ_TIMES
-       bool "CPU frequency time-in-state statistics"
-       default y
-       help
-         This driver exports CPU time-in-state information through procfs file
-         system.
-
-         If in doubt, say N.
-
 choice
 	prompt "Default CPUFreq governor"
 	default CPU_FREQ_DEFAULT_GOV_USERSPACE if ARM_SA1100_CPUFREQ || ARM_SA1110_CPUFREQ
@@ -91,14 +82,13 @@ config CPU_FREQ_DEFAULT_GOV_USERSPACE
 config CPU_FREQ_DEFAULT_GOV_ONDEMAND
 	bool "ondemand"
 	select CPU_FREQ_GOV_ONDEMAND
-	select CPU_FREQ_GOV_PERFORMANCE
 	help
 	  Use the CPUFreq governor 'ondemand' as default. This allows
 	  you to get a full dynamic frequency capable system by simply
 	  loading your cpufreq low-level hardware driver.
 	  Be aware that not all cpufreq drivers support the ondemand
 	  governor. If unsure have a look at the help section of the
-	  driver. Fallback governor will be the performance governor.
+	  driver.
 
 config CPU_FREQ_DEFAULT_GOV_LIONHEART
             bool "lionheart"
@@ -109,14 +99,13 @@ config CPU_FREQ_DEFAULT_GOV_LIONHEART
 config CPU_FREQ_DEFAULT_GOV_CONSERVATIVE
 	bool "conservative"
 	select CPU_FREQ_GOV_CONSERVATIVE
-	select CPU_FREQ_GOV_PERFORMANCE
 	help
 	  Use the CPUFreq governor 'conservative' as default. This allows
 	  you to get a full dynamic frequency capable system by simply
 	  loading your cpufreq low-level hardware driver.
 	  Be aware that not all cpufreq drivers support the conservative
 	  governor. If unsure have a look at the help section of the
-	  driver. Fallback governor will be the performance governor.
+	  driver.
 
 config CPU_FREQ_DEFAULT_GOV_INTERACTIVE
 	bool "interactive"
@@ -154,19 +143,23 @@ config CPU_FREQ_DEFAULT_GOV_SCHEDUTIL
 	bool "schedutil"
 	depends on SMP
 	select CPU_FREQ_GOV_SCHEDUTIL
-	select CPU_FREQ_GOV_PERFORMANCE
 	help
 	  Use the 'schedutil' CPUFreq governor by default. If unsure,
-	  have a look at the help section of that governor. The fallback
-	  governor will be 'performance'.
+	  have a look at the help section of that governor.
 
 config CPU_FREQ_DEFAULT_GOV_ALUCARDSCHED
 	bool "alucardsched"
 	depends on SMP
 	select CPU_FREQ_GOV_ALUCARDSCHED
-	select CPU_FREQ_GOV_PERFORMANCE
 	help
 	  Use the 'alucardsched' CPUFreq governor by default. If unsure,
+	  have a look at the help section of that governor.
+
+config CPU_FREQ_DEFAULT_GOV_DARKUTIL
+	bool "darkutil"
+	select CPU_FREQ_GOV_DARKUTIL
+	help
+	  Use the 'DARKUTIL' CPUFreq governor by default. If unsure,
 	  have a look at the help section of that governor. The fallback
 	  governor will be 'performance'.
 
@@ -182,13 +175,69 @@ config CPU_FREQ_DEFAULT_GOV_NEBULA
 config CPU_FREQ_DEFAULT_GOV_BLU_SCHEDUTIL
 	bool "blu_schedutil"
 	select CPU_FREQ_GOV_BLU_SCHEDUTIL
-	select CPU_FREQ_GOV_PERFORMANCE
 	help
 	  Use the 'blu_schedutil' CPUFreq governor by default. If unsure,
+	  have a look at the help section of that governor.
+
+	  If in doubt, say N.
+
+config CPU_FREQ_DEFAULT_GOV_DARKNESSSCHED
+	bool "darknesssched"
+	depends on SMP
+	select CPU_FREQ_GOV_DARKNESSSCHED
+	select CPU_FREQ_GOV_PERFORMANCE
+	help
+	  Use the 'darknesssched' CPUFreq governor by default. If unsure,
 	  have a look at the help section of that governor. The fallback
 	  governor will be 'performance'.
 
-	  If in doubt, say N.
+config CPU_FREQ_DEFAULT_GOV_HELIX
+	bool "helix_schedutil"
+	depends on SMP
+	select CPU_FREQ_GOV_HELIX
+	select CPU_FREQ_GOV_PERFORMANCE
+	help
+	  Use the 'helix-schedutil' CPUFreq governor by default. If unsure,
+	  have a look at the help section of that governor. The fallback
+	  governor will be 'performance'.
+
+config CPU_FREQ_DEFAULT_GOV_ENERGY
+	bool "energy-dcfc"
+	depends on SMP
+	select CPU_FREQ_GOV_ENERGY
+	select CPU_FREQ_GOV_PERFORMANCE
+	help
+	  Use the 'energy-dcfc' CPUFreq governor by default. If unsure,
+	  have a look at the help section of that governor. The fallback
+	  governor will be 'performance'.
+
+config CPU_FREQ_DEFAULT_GOV_ELECTROUTIL
+	bool "electroutil"
+	depends on SMP
+	select CPU_FREQ_GOV_ELECTROUTIL
+	help
+	  Use the 'schedutil' CPUFreq governor by default. If unsure,
+	  have a look at the help section of that governor. The fallback
+	  governor will be 'performance'.
+
+config CPU_FREQ_DEFAULT_GOV_PWRUTILX
+	bool "pwrutilx"
+	depends on SMP
+	select CPU_FREQ_GOV_PWRUTILX
+	select CPU_FREQ_GOV_PERFORMANCE
+	help
+	  Use the 'pwrutilx' CPUFreq governor by default. If unsure,
+	  have a look at the help section of that governor. The fallback
+	  governor will be 'performance'.
+	  
+config CPU_FREQ_DEFAULT_GOV_SCHEDHORIZON
+	bool "schedhorizon"
+	depends on SMP
+	select CPU_FREQ_GOV_SCHEDHORIZON
+	help
+	  Use the 'schedhorizon' CPUFreq governor by default. If unsure,
+	  have a look at the help section of that governor. The fallback
+	  governor will be 'performance'.
 
 endchoice
 
@@ -374,7 +423,7 @@ config CPU_FREQ_GOV_CHILL
 	tristate "'chill' cpufreq governor"
 	depends on CPU_FREQ
 	select CPU_FREQ_GOV_COMMON
-	default y
+	default n
 	help
 	  'chill' - similar to 'conservative', but optimized for devices
 	  that go into suspended or display off states often.
@@ -435,6 +484,68 @@ config CPU_FREQ_GOV_BLU_SCHEDUTIL
 
 	  If in doubt, say N.
 
+config CPU_UNDERCLOCK_FREQ_LP
+	int "Low-power cluster underclock freq"
+	default "0"
+	help
+	  CPU underclock frequency for the low-power CPU cluster.
+
+config CPU_UNDERCLOCK_FREQ_PERF
+	int "Performance cluster underclock freq"
+	default "0"
+	help
+	  CPU underclock frequency for the performance CPU cluster.
+
+config CPU_INPUT_BOOST
+	bool "CPU Input Boost"
+	help
+	  Boosts the CPU on touchscreen and touchpad input, and allows for
+	  boosting on other custom events, mainly which is intended to be for
+	  boosting when there is a new frame ready to be rendered to the
+	  display. The boost frequencies for this driver should be set so that
+	  frame drops are near-zero at the boosted frequencies and power
+	  consumption is minimized at said frequency combination.
+
+if CPU_INPUT_BOOST
+
+config INPUT_BOOST_DURATION_MS
+	int "Input boost duration"
+	default "100"
+	help
+	  Input boost duration in milliseconds.
+
+config WAKE_BOOST_DURATION_MS
+	int "Wake boost duration"
+	default "1000"
+	help
+	  Wake boost duration in milliseconds.
+
+config INPUT_BOOST_FREQ_LP
+	int "Low-power cluster boost freq"
+	default "0"
+	help
+	  Input boost frequency for the low-power CPU cluster.
+
+config INPUT_BOOST_FREQ_PERF
+	int "Performance cluster boost freq"
+	default "0"
+	help
+	  Input boost frequency for the performance CPU cluster.
+
+config MAX_BOOST_FREQ_LP
+	int "Low-power cluster max-boost freq"
+	default "0"
+	help
+	  Max-boost frequency for the low-power CPU cluster.
+
+config MAX_BOOST_FREQ_PERF
+	int "Performance cluster max-boost freq"
+	default "0"
+	help
+	  Max-boost frequency for the performance CPU cluster.
+
+endif
+
 comment "CPU frequency scaling drivers"
 
 config CPU_FREQ_GOV_ALUCARDSCHED
@@ -451,6 +562,134 @@ config CPU_FREQ_GOV_ALUCARDSCHED
 	  case, it is proportional to the current frequency of the CPU.  The
 	  frequency tipping point is at utilization/capacity equal to 80% in
 	  both cases.
+
+	  If in doubt, say N.
+
+config CPU_FREQ_GOV_DARKUTIL
+        tristate "'darkutil' cpufreq policy governor"
+        depends on CPU_FREQ
+        select CPU_FREQ_GOV_ATTR_SET
+        select IRQ_WORK
+        help
+          This governor makes decisions based on the utilization data provided
+          by the scheduler.  It sets the CPU frequency to be proportional to
+          the utilization/capacity ratio coming from the scheduler.  If the
+          utilization is frequency-invariant, the new frequency is also
+          proportional to the maximum available frequency.  If that is not the
+          case, it is proportional to the current frequency of the CPU.  The
+          frequency tipping point is at utilization/capacity equal to 80% in
+          both cases.
+          To compile this driver as a module, choose M here: the module will
+          be called cpufreq_darkutil.
+
+          If in doubt, say N.
+
+config CPU_FREQ_GOV_ELECTROUTIL
+        bool "'electroutil' cpufreq policy governor"
+        depends on CPU_FREQ && SMP
+        select CPU_FREQ_GOV_ATTR_SET
+        select IRQ_WORK
+        help
+          This governor makes decisions based on the utilization data provided
+          by the scheduler.  It sets the CPU frequency to be proportional to
+          the utilization/capacity ratio coming from the scheduler.  If the
+          utilization is frequency-invariant, the new frequency is also
+          proportional to the maximum available frequency.  If that is not the
+          case, it is proportional to the current frequency of the CPU.  The
+          frequency tipping point is at utilization/capacity equal to 80% in
+          both cases.
+
+          If in doubt, say N.
+
+config CPU_FREQ_GOV_ENERGY
+	bool "'energy-dcfc' cpufreq policy governor"
+	depends on CPU_FREQ && SMP
+	select CPU_FREQ_GOV_ATTR_SET
+	select IRQ_WORK
+	help
+	  This governor makes decisions based on the utilization data provided
+	  by the scheduler.  It sets the CPU frequency to be proportional to
+	  the utilization/capacity ratio coming from the scheduler.  If the
+	  utilization is frequency-invariant, the new frequency is also
+	  proportional to the maximum available frequency.  If that is not the
+	  case, it is proportional to the current frequency of the CPU.  The
+	  frequency tipping point is at utilization/capacity equal to 80% in
+	  both cases. This governor also allows changing of the frequency
+	  tipping point by changing the bit shift value of the schedutil
+	  get_next_freq equation. Additionally, this governor introduces
+	  Dynamic Capacity and Frequency Capping (DCFC). Depending on the
+	  target_load, the governor is able to cap the capacity dynamically.
+
+	  If in doubt, say N.
+
+config CPU_FREQ_GOV_PWRUTILX
+	bool "'pwrutilx' cpufreq policy governor"
+	depends on CPU_FREQ && SMP
+	select CPU_FREQ_GOV_ATTR_SET
+	select IRQ_WORK
+	help
+	  This governor makes decisions based on the utilization data provided
+	  by the scheduler.  It sets the CPU frequency to be proportional to
+	  the utilization/capacity ratio coming from the scheduler.  If the
+	  utilization is frequency-invariant, the new frequency is also
+	  proportional to the maximum available frequency.  If that is not the
+	  case, it is proportional to the current frequency of the CPU.
+
+	  If in doubt, say N.
+
+config CPU_FREQ_GOV_HELIX
+	bool "'helix_schedutil' cpufreq policy governor"
+	depends on CPU_FREQ && SMP
+	select CPU_FREQ_GOV_ATTR_SET
+	select IRQ_WORK
+	help
+	  This governor makes decisions based on the utilization data provided
+	  by the scheduler.  It sets the CPU frequency to be proportional to
+	  the utilization/capacity ratio coming from the scheduler.  If the
+	  utilization is frequency-invariant, the new frequency is also
+	  proportional to the maximum available frequency.  If that is not the
+	  case, it is proportional to the current frequency of the CPU.  The
+	  frequency tipping point is at utilization/capacity equal to 80% in
+	  both cases. This governor also allows changing of the frequency tipping point by changing the bit shift value of the schedutil get_next_freq equation.
+
+	  If in doubt, say N.
+
+config CPU_FREQ_GOV_DARKNESSSCHED
+	bool "'darknesssched' cpufreq policy governor"
+	depends on CPU_FREQ && SMP
+	select CPU_FREQ_GOV_ATTR_SET
+	select IRQ_WORK
+	help
+	  This governor makes decisions based on the utilization data provided
+	  by the scheduler.  It sets the CPU frequency to be proportional to
+	  the utilization/capacity ratio coming from the scheduler.  If the
+	  utilization is frequency-invariant, the new frequency is also
+	  proportional to the maximum available frequency.  If that is not the
+	  case, it is proportional to the current frequency of the CPU.  The
+	  frequency tipping point is at utilization/capacity equal to 80% in
+	  both cases.
+
+	  If in doubt, say N.
+
+config CPU_FREQ_GOV_SCHEDHORIZON
+	bool "'schedhorizon' cpufreq policy governor"
+	depends on CPU_FREQ && SMP
+	select CPU_FREQ_GOV_ATTR_SET
+	select IRQ_WORK
+	help
+	  This is a modified version of schedutil, introducing two new tunables: 
+          "efficient_freq" and "up_delay".
+
+          Only raise cpufreq to the non-efficient one (higher than effcient frequencies) 
+          if the governor keeps requiring non-efficient frequencies for more than up_delay time.
+
+          Override the new frequencies with the efficient one if the consecutive request time 
+          doesn't reach up_delay.
+
+          The two tunables support multiple args, e.g. you can set "1248000 1401600" for 
+          "efficient_freq" and set "50 60" for "up_delay", which means it would wait 50ms 
+          before raising the frequency to 1248mhz and wait for 60ms before raising the frequency 
+          to 1401mhz.
 
 	  If in doubt, say N.
 

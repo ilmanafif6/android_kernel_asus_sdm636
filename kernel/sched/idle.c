@@ -212,10 +212,9 @@ DEFINE_PER_CPU(bool, cpu_dead_idle);
  */
 static void cpu_idle_loop(void)
 {
+	int cpu = smp_processor_id();
+
 	while (1) {
-
-		int cpu = smp_processor_id();
-
 		/*
 		 * If the arch has a polling bit, we maintain an invariant:
 		 *
@@ -233,7 +232,7 @@ static void cpu_idle_loop(void)
 			check_pgt_cache();
 			rmb();
 
-			if (cpu_is_offline(smp_processor_id())) {
+			if (cpu_is_offline(cpu)) {
 				rcu_cpu_notify(NULL, CPU_DYING_IDLE,
 					       (void *)(long)cpu);
 				smp_mb(); /* all activity before dead. */
@@ -281,11 +280,6 @@ static void cpu_idle_loop(void)
 		 */
 		smp_mb__after_atomic();
 
-		/*
-		 * RCU relies on this call to be done outside of an RCU read-side
-		 * critical section.
-		 */
-		flush_smp_call_function_from_idle();
 		sched_ttwu_pending();
 		schedule_preempt_disabled();
 	}

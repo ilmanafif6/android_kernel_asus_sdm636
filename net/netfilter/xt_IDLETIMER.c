@@ -327,8 +327,6 @@ static int idletimer_tg_create(struct idletimer_tg_info *info)
 		pr_debug("couldn't add file to sysfs");
 		goto out_free_attr;
 	}
-	/* notify userspace */
-	kobject_uevent(idletimer_tg_kobj, KOBJ_ADD);
 
 	list_add(&info->timer->entry, &idletimer_tg_list);
 
@@ -505,7 +503,6 @@ static struct xt_target idletimer_tg __read_mostly = {
 	.family		= NFPROTO_UNSPEC,
 	.target		= idletimer_tg_target,
 	.targetsize     = sizeof(struct idletimer_tg_info),
-	.usersize	= offsetof(struct idletimer_tg_info, timer),
 	.checkentry	= idletimer_tg_checkentry,
 	.destroy        = idletimer_tg_destroy,
 	.me		= THIS_MODULE,

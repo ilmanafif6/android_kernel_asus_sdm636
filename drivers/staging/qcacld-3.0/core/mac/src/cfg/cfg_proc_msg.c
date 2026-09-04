@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2018, 2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2018 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1188,11 +1188,6 @@ cgstatic cfg_static[CFG_PARAM_MAX_NUM] = {
 	{WNI_CFG_EDCA_ETSI_ACVO,
 	 CFG_CTL_VALID | CFG_CTL_RE | CFG_CTL_WE | CFG_CTL_RESTART,
 	 0, 0, 0},
-#ifdef WLAN_FEATURE_SAE
-	{WNI_CFG_SAP_SAE_ENABLED,
-	 CFG_CTL_VALID | CFG_CTL_RE | CFG_CTL_WE | CFG_CTL_INT,
-	 0, 1, 1},
-#endif
 };
 
 
@@ -1545,13 +1540,6 @@ static void proc_dnld_rsp(tpAniSirGlobal pMac, uint16_t length, uint32_t *pParam
 		       pHdr->controlSize, pHdr->iBufSize, pHdr->sBufSize,
 		       pMac->cfg.gCfgMaxSBufSize);
 
-	if (pHdr->sBufSize > (UINT_MAX -
-		(((CFG_PARAM_MAX_NUM + 3 * pMac->cfg.gCfgMaxIBufSize) << 2) +
-		sizeof(tCfgBinHdr)))) {
-		pe_warn("Invalid sBufSize coming from fw %d", pHdr->sBufSize);
-		retVal = WNI_CFG_INVALID_LEN;
-		goto end;
-	}
 	expLen =
 		((CFG_PARAM_MAX_NUM + 3 * pMac->cfg.gCfgMaxIBufSize) << 2) +
 		pHdr->sBufSize + sizeof(tCfgBinHdr);

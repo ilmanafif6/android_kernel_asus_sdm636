@@ -60,7 +60,7 @@
 	mutex_unlock(lock);			\
 }
 
-#define WCD_CPE_STATE_MAX_LEN 13
+#define WCD_CPE_STATE_MAX_LEN 11
 #define CPE_OFFLINE_WAIT_TIMEOUT (2 * HZ)
 #define CPE_READY_WAIT_TIMEOUT (3 * HZ)
 #define WCD_CPE_SYSFS_DIR_MAX_LENGTH 32
@@ -2406,7 +2406,7 @@ static int wcd_cpe_cmd_lsm_open_tx_v2(
 	cmd_open_tx_v2.topology_id = lsm_top->topology;
 	ret = wcd_cpe_cmi_send_lsm_msg(core, session, &cmd_open_tx_v2);
 	if (ret)
-		dev_err(core->dev,
+		dev_dbg(core->dev,
 			"%s: failed to send open_tx_v2 cmd, err = %d\n",
 			__func__, ret);
 	else

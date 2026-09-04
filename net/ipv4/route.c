@@ -70,7 +70,6 @@
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
-#include <linux/bootmem.h>
 #include <linux/string.h>
 #include <linux/socket.h>
 #include <linux/sockios.h>
@@ -131,6 +130,8 @@ static u32 ip_rt_min_pmtu __read_mostly		= 512 + 20 + 20;
 static int ip_rt_min_advmss __read_mostly	= 256;
 
 static int ip_rt_gc_timeout __read_mostly	= RT_GC_TIMEOUT;
+
+static int ip_min_valid_pmtu __read_mostly	= IPV4_MIN_MTU;
 
 /*
  *	Interface to generic destination cache.
@@ -272,7 +273,6 @@ static void *rt_cpu_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 		*pos = cpu+1;
 		return &per_cpu(rt_cache_stat, cpu);
 	}
-	(*pos)++;
 	return NULL;
 
 }
@@ -464,10 +464,8 @@ static struct neighbour *ipv4_neigh_lookup(const struct dst_entry *dst,
 	return neigh_create(&arp_tbl, pkey, dev);
 }
 
-/* Hash tables of size 2048..262144 depending on RAM size.
- * Each bucket uses 8 bytes.
- */
-static u32 ip_idents_mask __read_mostly;
+#define IP_IDENTS_SZ 2048u
+
 static atomic_t *ip_idents __read_mostly;
 static u32 *ip_tstamps __read_mostly;
 
@@ -477,23 +475,15 @@ static u32 *ip_tstamps __read_mostly;
  */
 u32 ip_idents_reserve(u32 hash, int segs)
 {
-	u32 bucket, old, now = (u32)jiffies;
-	atomic_t *p_id;
-	u32 *p_tstamp;
+	u32 *p_tstamp = ip_tstamps + hash % IP_IDENTS_SZ;
+	atomic_t *p_id = ip_idents + hash % IP_IDENTS_SZ;
+	u32 old = ACCESS_ONCE(*p_tstamp);
+	u32 now = (u32)jiffies;
 	u32 delta = 0;
-
-	bucket = hash & ip_idents_mask;
-	p_tstamp = ip_tstamps + bucket;
-	p_id = ip_idents + bucket;
-	old = ACCESS_ONCE(*p_tstamp);
 
 	if (old != now && cmpxchg(p_tstamp, old, now) == old)
 		delta = prandom_u32_max(now - old);
 
-	/* If UBSAN reports an error there, please make sure your compiler
-	 * supports -fno-strict-overflow before reporting it that was a bug
-	 * in UBSAN, and it has been fixed in GCC-8.
-	 */
 	return atomic_add_return(segs + delta, p_id) - segs;
 }
 EXPORT_SYMBOL(ip_idents_reserve);
@@ -600,25 +590,18 @@ static void fnhe_flush_routes(struct fib_nh_exception *fnhe)
 	}
 }
 
-static void fnhe_remove_oldest(struct fnhe_hash_bucket *hash)
+static struct fib_nh_exception *fnhe_oldest(struct fnhe_hash_bucket *hash)
 {
-	struct fib_nh_exception __rcu **fnhe_p, **oldest_p;
-	struct fib_nh_exception *fnhe, *oldest = NULL;
+	struct fib_nh_exception *fnhe, *oldest;
 
-	for (fnhe_p = &hash->chain; ; fnhe_p = &fnhe->fnhe_next) {
-		fnhe = rcu_dereference_protected(*fnhe_p,
-						 lockdep_is_held(&fnhe_lock));
-		if (!fnhe)
-			break;
-		if (!oldest ||
-		    time_before(fnhe->fnhe_stamp, oldest->fnhe_stamp)) {
+	oldest = rcu_dereference(hash->chain);
+	for (fnhe = rcu_dereference(oldest->fnhe_next); fnhe;
+	     fnhe = rcu_dereference(fnhe->fnhe_next)) {
+		if (time_before(fnhe->fnhe_stamp, oldest->fnhe_stamp))
 			oldest = fnhe;
-			oldest_p = fnhe_p;
-		}
 	}
 	fnhe_flush_routes(oldest);
-	*oldest_p = oldest->fnhe_next;
-	kfree_rcu(oldest, rcu);
+	return oldest;
 }
 
 static inline u32 fnhe_hashfun(__be32 daddr)
@@ -695,29 +678,22 @@ static void update_or_create_fnhe(struct fib_nh *nh, __be32 daddr, __be32 gw,
 		if (rt)
 			fill_route_from_fnhe(rt, fnhe);
 	} else {
-		/* Randomize max depth to avoid some side channels attacks. */
-		int max_depth = FNHE_RECLAIM_DEPTH +
-				prandom_u32_max(FNHE_RECLAIM_DEPTH);
+		if (depth > FNHE_RECLAIM_DEPTH)
+			fnhe = fnhe_oldest(hash);
+		else {
+			fnhe = kzalloc(sizeof(*fnhe), GFP_ATOMIC);
+			if (!fnhe)
+				goto out_unlock;
 
-		while (depth > max_depth) {
-			fnhe_remove_oldest(hash);
-			depth--;
+			fnhe->fnhe_next = hash->chain;
+			rcu_assign_pointer(hash->chain, fnhe);
 		}
-
-		fnhe = kzalloc(sizeof(*fnhe), GFP_ATOMIC);
-		if (!fnhe)
-			goto out_unlock;
-
-		fnhe->fnhe_next = hash->chain;
-
 		fnhe->fnhe_genid = genid;
 		fnhe->fnhe_daddr = daddr;
 		fnhe->fnhe_gw = gw;
 		fnhe->fnhe_pmtu = pmtu;
 		fnhe->fnhe_mtu_locked = lock;
 		fnhe->fnhe_expires = expires;
-
-		rcu_assign_pointer(hash->chain, fnhe);
 
 		/* Exception created; mark the cached routes for the nexthop
 		 * stale, so anyone caching it rechecks if this exception
@@ -922,7 +898,7 @@ void ip_rt_send_redirect(struct sk_buff *skb)
 	/* Check for load limit; set rate_last to the latest sent
 	 * redirect.
 	 */
-	if (peer->n_redirects == 0 ||
+	if (peer->rate_tokens == 0 ||
 	    time_after(jiffies,
 		       (peer->rate_last +
 			(ip_rt_redirect_load << peer->n_redirects)))) {
@@ -1013,22 +989,21 @@ out:	kfree_skb(skb);
 static void __ip_rt_update_pmtu(struct rtable *rt, struct flowi4 *fl4, u32 mtu)
 {
 	struct dst_entry *dst = &rt->dst;
-	u32 old_mtu = ipv4_mtu(dst);
 	struct fib_result res;
 	bool lock = false;
 
 	if (ip_mtu_locked(dst))
 		return;
 
-	if (old_mtu < mtu)
+	if (ipv4_mtu(dst) < mtu)
 		return;
 
 	if (mtu < ip_rt_min_pmtu) {
 		lock = true;
-		mtu = min(old_mtu, ip_rt_min_pmtu);
+		mtu = ip_rt_min_pmtu;
 	}
 
-	if (rt->rt_pmtu == mtu && !lock &&
+	if (rt->rt_pmtu == mtu &&
 	    time_before(jiffies, dst->expires - ip_rt_mtu_expires / 2))
 		return;
 
@@ -1526,9 +1501,9 @@ static void rt_set_nexthop(struct rtable *rt, __be32 daddr,
 #endif
 }
 
-struct rtable *rt_dst_alloc(struct net_device *dev,
-			    unsigned int flags, u16 type,
-			    bool nopolicy, bool noxfrm, bool will_cache)
+static struct rtable *rt_dst_alloc(struct net_device *dev,
+				   unsigned int flags, u16 type,
+				   bool nopolicy, bool noxfrm, bool will_cache)
 {
 	struct rtable *rt;
 
@@ -1557,7 +1532,6 @@ struct rtable *rt_dst_alloc(struct net_device *dev,
 
 	return rt;
 }
-EXPORT_SYMBOL(rt_dst_alloc);
 
 /* called in rcu_read_lock() section */
 static int ip_route_input_mc(struct sk_buff *skb, __be32 daddr, __be32 saddr,
@@ -2747,7 +2721,6 @@ void ip_rt_multicast_event(struct in_device *in_dev)
 static int ip_rt_gc_interval __read_mostly  = 60 * HZ;
 static int ip_rt_gc_min_interval __read_mostly	= HZ / 2;
 static int ip_rt_gc_elasticity __read_mostly	= 8;
-static int ip_min_valid_pmtu __read_mostly	= IPV4_MIN_MTU;
 
 static int ipv4_sysctl_rtcache_flush(struct ctl_table *__ctl, int write,
 					void __user *buffer,
@@ -2974,27 +2947,18 @@ struct ip_rt_acct __percpu *ip_rt_acct __read_mostly;
 
 int __init ip_rt_init(void)
 {
-	void *idents_hash;
 	int rc = 0;
 	int cpu;
 
-	/* For modern hosts, this will use 2 MB of memory */
-	idents_hash = alloc_large_system_hash("IP idents",
-					      sizeof(*ip_idents) + sizeof(*ip_tstamps),
-					      0,
-					      16, /* one bucket per 64 KB */
-					      0,
-					      NULL,
-					      &ip_idents_mask,
-					      2048,
-					      256*1024);
+	ip_idents = kmalloc(IP_IDENTS_SZ * sizeof(*ip_idents), GFP_KERNEL);
+	if (!ip_idents)
+		panic("IP: failed to allocate ip_idents\n");
 
-	ip_idents = idents_hash;
+	prandom_bytes(ip_idents, IP_IDENTS_SZ * sizeof(*ip_idents));
 
-	prandom_bytes(ip_idents, (ip_idents_mask + 1) * sizeof(*ip_idents));
-
-	ip_tstamps = idents_hash + (ip_idents_mask + 1) * sizeof(*ip_idents);
-	memset(ip_tstamps, 0, (ip_idents_mask + 1) * sizeof(*ip_tstamps));
+	ip_tstamps = kcalloc(IP_IDENTS_SZ, sizeof(*ip_tstamps), GFP_KERNEL);
+	if (!ip_tstamps)
+		panic("IP: failed to allocate ip_tstamps\n");
 
 	for_each_possible_cpu(cpu) {
 		struct uncached_list *ul = &per_cpu(rt_uncached_list, cpu);

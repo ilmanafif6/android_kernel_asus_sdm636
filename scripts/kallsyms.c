@@ -372,7 +372,7 @@ static void write_src(void)
 	printf("\n");
 
 	output_label("kallsyms_num_syms");
-	printf("\tPTR\t%d\n", table_cnt);
+	printf("\tPTR\t%u\n", table_cnt);
 	printf("\n");
 
 	/* table of offset markers, that give the offset in the compressed stream
@@ -455,8 +455,6 @@ static void build_initial_tok_table(void)
 				table[pos] = table[i];
 			learn_symbol(table[pos].sym, table[pos].len);
 			pos++;
-		} else {
-			free(table[i].sym);
 		}
 	}
 	table_cnt = pos;

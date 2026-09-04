@@ -75,11 +75,6 @@ int __ext4_check_dir_entry(const char *function, unsigned int line,
 		error_msg = "rec_len is too small for name_len";
 	else if (unlikely(((char *) de - buf) + rlen > size))
 		error_msg = "directory entry overrun";
-	else if (unlikely(((char *) de - buf) + rlen >
-			  size - EXT4_DIR_REC_LEN(1) &&
-			  ((char *) de - buf) + rlen != size)) {
-		error_msg = "directory entry too close to block end";
-	}
 	else if (unlikely(le32_to_cpu(de->inode) >
 			le32_to_cpu(EXT4_SB(dir->i_sb)->s_es->s_inodes_count)))
 		error_msg = "inode out of bounds";
@@ -125,14 +120,12 @@ static int ext4_readdir(struct file *file, struct dir_context *ctx)
 		if (err != ERR_BAD_DX_DIR) {
 			return err;
 		}
-		/* Can we just clear INDEX flag to ignore htree information? */
-		if (!ext4_has_metadata_csum(sb)) {
-			/*
-			 * We don't set the inode dirty flag since it's not
-			 * critical that it gets flushed back to the disk.
-			 */
-			ext4_clear_inode_flag(inode, EXT4_INODE_INDEX);
-		}
+		/*
+		 * We don't set the inode dirty flag since it's not
+		 * critical that it get flushed back to the disk.
+		 */
+		ext4_clear_inode_flag(file_inode(file),
+				      EXT4_INODE_INDEX);
 	}
 
 	if (ext4_has_inline_data(inode)) {
@@ -524,7 +517,7 @@ static int ext4_dx_readdir(struct file *file, struct dir_context *ctx)
 	struct dir_private_info *info = file->private_data;
 	struct inode *inode = file_inode(file);
 	struct fname *fname;
-	int ret = 0;
+	int	ret;
 
 	if (!info) {
 		info = ext4_htree_create_dir_info(file, ctx->pos);
@@ -572,7 +565,7 @@ static int ext4_dx_readdir(struct file *file, struct dir_context *ctx)
 						   info->curr_minor_hash,
 						   &info->next_hash);
 			if (ret < 0)
-				goto finished;
+				return ret;
 			if (ret == 0) {
 				ctx->pos = ext4_get_htree_eof(file);
 				break;
@@ -603,7 +596,7 @@ static int ext4_dx_readdir(struct file *file, struct dir_context *ctx)
 	}
 finished:
 	info->last_pos = ctx->pos;
-	return ret < 0 ? ret : 0;
+	return 0;
 }
 
 static int ext4_dir_open(struct inode * inode, struct file * filp)

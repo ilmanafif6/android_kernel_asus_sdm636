@@ -21,7 +21,6 @@
 #include <linux/err.h>
 
 extern const void *sys_call_table[];
-typedef long (*syscall_fn_t)(const struct pt_regs *regs);
 
 static inline int syscall_get_nr(struct task_struct *task,
 				 struct pt_regs *regs)

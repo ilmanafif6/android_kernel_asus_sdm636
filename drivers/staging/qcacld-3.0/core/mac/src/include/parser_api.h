@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018, 2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -425,7 +425,6 @@ typedef struct sSirAssocReq {
 	tDot11fIEExtCap ExtCap;
 	tDot11fIEvendor_vht_ie vendor_vht_ie;
 	tDot11fIEhs20vendor_ie hs20vendor_ie;
-	bool is_sae_authenticated;
 } tSirAssocReq, *tpSirAssocReq;
 
 /* / Association Response structure (one day to be replaced by */
@@ -801,7 +800,7 @@ populate_dot11f_ext_supp_rates(tpAniSirGlobal pMac,
  * @pMac: Pointer to the global MAC context
  * @pDot11f: Pointer to the measurement report structure
  * @pBeaconReport: Pointer to the Beacon Report structure
- * @is_last_frame: is the current report last or more reports to follow
+ * @last_beacon_report_params: Last Beacon Report indication params
  *
  * Return: Ret Status
  */
@@ -809,7 +808,8 @@ tSirRetStatus
 populate_dot11f_beacon_report(tpAniSirGlobal pMac,
 			tDot11fIEMeasurementReport *pDot11f,
 			tSirMacBeaconReport *pBeaconReport,
-			bool is_last_frame);
+			struct rrm_beacon_report_last_beacon_params
+			*last_beacon_report_params);
 
 /**
  * \brief Populate a tDot11fIEExtSuppRates
@@ -1213,7 +1213,7 @@ sir_validate_and_rectify_ies(tpAniSirGlobal mac_ctx,
  *
  * Return: None
  */
-void sir_copy_caps_info(tpAniSirGlobal mac_ctx, tDot11fFfCapabilities caps,
+void sir_copy_caps_info(tpAniSirGlobal mac_ctx, tDot11fFfCapabilities *caps,
 			tpSirProbeRespBeacon pProbeResp);
 
 #endif /* __PARSE_H__ */

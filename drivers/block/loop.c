@@ -879,13 +879,13 @@ static void loop_config_discard(struct loop_device *lo)
 
 static void loop_unprepare_queue(struct loop_device *lo)
 {
-	flush_kthread_worker(&lo->worker);
+	kthread_flush_worker(&lo->worker);
 	kthread_stop(lo->worker_task);
 }
 
 static int loop_prepare_queue(struct loop_device *lo)
 {
-	init_kthread_worker(&lo->worker);
+	kthread_init_worker(&lo->worker);
 	lo->worker_task = kthread_run(kthread_worker_fn,
 			&lo->worker, "loop%d", lo->lo_number);
 	if (IS_ERR(lo->worker_task))
@@ -1753,7 +1753,7 @@ static int loop_queue_rq(struct blk_mq_hw_ctx *hctx,
 	else
 		cmd->use_aio = false;
 
-	queue_kthread_work(&lo->worker, &cmd->work);
+	kthread_queue_work(&lo->worker, &cmd->work);
 
 	return BLK_MQ_RQ_QUEUE_OK;
 }
@@ -1791,7 +1791,7 @@ static int loop_init_request(void *data, struct request *rq,
 	struct loop_cmd *cmd = blk_mq_rq_to_pdu(rq);
 
 	cmd->rq = rq;
-	init_kthread_work(&cmd->work, loop_queue_work);
+	kthread_init_work(&cmd->work, loop_queue_work);
 
 	return 0;
 }
@@ -1830,7 +1830,7 @@ static int loop_add(struct loop_device **l, int i)
 	err = -ENOMEM;
 	lo->tag_set.ops = &loop_mq_ops;
 	lo->tag_set.nr_hw_queues = 1;
-	lo->tag_set.queue_depth = 32;
+	lo->tag_set.queue_depth = 128;
 	lo->tag_set.numa_node = NUMA_NO_NODE;
 	lo->tag_set.cmd_size = sizeof(struct loop_cmd);
 	lo->tag_set.flags = BLK_MQ_F_SHOULD_MERGE | BLK_MQ_F_SG_MERGE;

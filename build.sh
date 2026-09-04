@@ -98,6 +98,9 @@ bool ksu_vfs_read_hook __read_mostly = true;
 bool ksu_input_hook __read_mostly = true;
 EOF
 
+# Hindari memory patching berbahaya di ReSukiSU saat boot non-GKI 4.4
+echo "#define KSU_COMPAT_HAS_SUSFS_FEATURE_SELINUX_HIDE 1" >> ReSukiSU/kernel/compat/kernel_compat.h
+
 # Update Supported multi managers di Kbuild log
 sed -i 's/\$(info -- Supported Unofficial Manager:.*)/\$(info -- Supported multi managers: resukisu, sukisu, ksu official, kowsu, backslash ksu, mksu, rksu, mambosu, kamisu, vortexsu, agnessu, kittisu)/g' ReSukiSU/kernel/Kbuild
 

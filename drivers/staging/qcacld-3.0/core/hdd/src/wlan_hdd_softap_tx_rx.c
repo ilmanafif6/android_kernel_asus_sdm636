@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018, 2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -342,8 +342,10 @@ bool hdd_dhcp_indication(hdd_adapter_t *adapter,
 {
 	enum qdf_proto_subtype subtype = QDF_PROTO_INVALID;
 	hdd_station_info_t *hdd_sta_info;
+
 	bool notify_tx_comp = false;
 
+	hdd_debug("adapter=%p, sta_id=%d, dir=%d", adapter, sta_id, dir);
 
 	if (((adapter->device_mode == QDF_SAP_MODE) ||
 	     (adapter->device_mode == QDF_P2P_GO_MODE)) &&
@@ -433,11 +435,9 @@ static netdev_tx_t __hdd_softap_hard_start_xmit(struct sk_buff *skb,
 	 * context may not be reinitialized at this time which may
 	 * lead to a crash.
 	 */
-	if (cds_is_driver_recovering() || cds_is_driver_in_bad_state() ||
-	    cds_is_load_or_unload_in_progress()) {
+	if (cds_is_driver_recovering() || cds_is_driver_in_bad_state()) {
 		QDF_TRACE(QDF_MODULE_ID_HDD_SAP_DATA, QDF_TRACE_LEVEL_INFO_HIGH,
-			  "%s: Recovery/(Un)load in Progress. Ignore!!!",
-			  __func__);
+			  "%s: Recovery in Progress. Ignore!!!", __func__);
 		goto drop_pkt;
 	}
 
@@ -855,7 +855,7 @@ QDF_STATUS hdd_softap_rx_packet_cbk(void *context, qdf_nbuf_t rxBuf)
 	struct sk_buff *skb = NULL;
 	hdd_context_t *pHddCtx = NULL;
 	struct qdf_mac_addr src_mac;
-	uint8_t staid = 0;
+	uint8_t staid;
 
 	/* Sanity check on inputs */
 	if (unlikely((NULL == context) || (NULL == rxBuf))) {
@@ -909,13 +909,6 @@ QDF_STATUS hdd_softap_rx_packet_cbk(void *context, qdf_nbuf_t rxBuf)
 	}
 
 	hdd_dhcp_indication(pAdapter, staid, skb, QDF_RX);
-
-	if (qdf_unlikely(qdf_nbuf_is_ipv4_eapol_pkt(skb) &&
-			 qdf_mem_cmp(qdf_nbuf_data(skb) +
-				     QDF_NBUF_DEST_MAC_OFFSET,
-				     pAdapter->macAddressCurrent.bytes,
-				     QDF_MAC_ADDR_SIZE)))
-		return QDF_STATUS_E_FAILURE;
 
 	hdd_event_eapol_log(skb, QDF_RX);
 	qdf_dp_trace_log_pkt(pAdapter->sessionId, skb, QDF_RX);
@@ -1200,14 +1193,6 @@ QDF_STATUS hdd_softap_stop_bss(hdd_adapter_t *pAdapter)
 			pAdapter->device_mode == QDF_SAP_MODE) {
 		hdd_update_indoor_channel(pHddCtx, false);
 		sme_update_channel_list(pHddCtx->hHal);
-	}
-
-	if (hdd_ipa_is_enabled(pHddCtx)) {
-		if (hdd_ipa_wlan_evt(pAdapter,
-				WLAN_HDD_GET_AP_CTX_PTR(pAdapter)->uBCStaId,
-				HDD_IPA_AP_DISCONNECT,
-				pAdapter->dev->dev_addr))
-			hdd_err("WLAN_AP_DISCONNECT event failed");
 	}
 
 	return qdf_status;

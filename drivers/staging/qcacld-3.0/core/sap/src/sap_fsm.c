@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -58,6 +58,10 @@
 /*----------------------------------------------------------------------------
  *  External declarations for global context
  * -------------------------------------------------------------------------*/
+#ifdef FEATURE_WLAN_CH_AVOID
+extern sapSafeChannelType safe_channels[];
+#endif /* FEATURE_WLAN_CH_AVOID */
+
 /*----------------------------------------------------------------------------
  * Static Variable Definitions
  * -------------------------------------------------------------------------*/
@@ -2286,8 +2290,7 @@ QDF_STATUS sap_goto_channel_sel(ptSapContext sap_context,
 
 	if (cds_concurrent_beaconing_sessions_running()) {
 		con_ch =
-			sme_get_beaconing_concurrent_operation_channel(h_hal,
-							sap_context->sessionId);
+			sme_get_concurrent_operation_channel(h_hal);
 #ifdef FEATURE_WLAN_STA_AP_MODE_DFS_DISABLE
 		if (con_ch && sap_context->channel == AUTO_CHANNEL_SELECT) {
 			sap_context->dfs_ch_disable = true;
@@ -2299,9 +2302,9 @@ QDF_STATUS sap_goto_channel_sel(ptSapContext sap_context,
 		}
 #endif
 #ifdef FEATURE_WLAN_MCC_TO_SCC_SWITCH
-		if (con_ch && (sap_context->cc_switch_mode !=
+		if (sap_context->cc_switch_mode !=
 					QDF_MCC_TO_SCC_SWITCH_DISABLE &&
-					sap_context->channel)) {
+					sap_context->channel) {
 			/*
 			 * For ACS request ,the sapContext->channel is 0,
 			 * we skip below overlap checking. When the ACS
@@ -2322,9 +2325,6 @@ QDF_STATUS sap_goto_channel_sel(ptSapContext sap_context,
 					"%s: Override ch %d to %d due to CC Intf",
 					__func__, sap_context->channel, con_ch);
 				sap_context->channel = con_ch;
-				if (CDS_IS_CHANNEL_24GHZ(con_ch))
-					sap_context->ch_params.ch_width =
-								CH_WIDTH_20MHZ;
 				cds_set_channel_params(sap_context->channel, 0,
 						&sap_context->ch_params);
 			}
@@ -2386,9 +2386,6 @@ QDF_STATUS sap_goto_channel_sel(ptSapContext sap_context,
 						__func__, sap_context->channel,
 						con_ch);
 				sap_context->channel = con_ch;
-				if (CDS_IS_CHANNEL_24GHZ(con_ch))
-					sap_context->ch_params.ch_width =
-								CH_WIDTH_20MHZ;
 				cds_set_channel_params(sap_context->channel, 0,
 						&sap_context->ch_params);
 			}
@@ -3008,12 +3005,6 @@ QDF_STATUS sap_signal_hdd_event(ptSapContext sap_ctx,
 				  FL("Invalid CSR Roam Info"));
 			return QDF_STATUS_E_INVAL;
 		}
-		if (eSAP_DISCONNECTING == sap_ctx->sapsMachine) {
-			QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_ERROR,
-				  "SAP is disconnecting, not able to handle any incoming (re)assoc req");
-			return QDF_STATUS_E_ABORTED;
-		}
-
 		reassoc_complete =
 		    &sap_ap_event.sapevt.sapStationAssocReassocCompleteEvent;
 
@@ -3881,8 +3872,7 @@ static QDF_STATUS sap_fsm_state_ch_select(ptSapContext sap_ctx,
 		if (cds_concurrent_beaconing_sessions_running()) {
 			uint16_t con_ch;
 
-			con_ch = sme_get_beaconing_concurrent_operation_channel(
-					hal, sap_ctx->sessionId);
+			con_ch = sme_get_concurrent_operation_channel(hal);
 			if (con_ch && CDS_IS_DFS_CH(con_ch))
 				sap_ctx->channel = con_ch;
 		}
@@ -4003,7 +3993,6 @@ static QDF_STATUS sap_fsm_state_dfs_cac_wait(ptSapContext sap_ctx,
 					continue;
 				/* SAP to be moved to DISCONNECTING state */
 				t_sap_ctx->sapsMachine = eSAP_DISCONNECTING;
-				t_sap_ctx->is_chan_change_inprogress = true;
 				/*
 				 * eSAP_DFS_CHANNEL_CAC_RADAR_FOUND:
 				 * A Radar is found on current DFS Channel
@@ -4318,9 +4307,17 @@ static QDF_STATUS sap_fsm_state_disconnecting(ptSapContext sap_ctx,
 			  "eSAP_DISCONNECTING", "eSAP_DISCONNECTED");
 		sap_ctx->sapsMachine = eSAP_DISCONNECTED;
 
-		qdf_status = sap_signal_hdd_event(sap_ctx, NULL,
-						  eSAP_STOP_BSS_EVENT,
-						  (void *)eSAP_STATUS_SUCCESS);
+		/* Close the SME session */
+		if (true == sap_ctx->isSapSessionOpen) {
+			sap_ctx->isSapSessionOpen = false;
+			qdf_status = sap_close_session(hal, sap_ctx,
+					sap_roam_session_close_callback, true);
+			if (!QDF_IS_STATUS_SUCCESS(qdf_status)) {
+				qdf_status = sap_signal_hdd_event(sap_ctx, NULL,
+						eSAP_STOP_BSS_EVENT,
+						(void *)eSAP_STATUS_SUCCESS);
+			}
+		}
 	} else if (msg == eWNI_SME_CHANNEL_CHANGE_REQ) {
 		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_INFO_MED,
 			  FL("sapdfs: Send channel change request on sapctx[%pK]"),
@@ -4844,11 +4841,12 @@ static QDF_STATUS sap_get_channel_list(ptSapContext sap_ctx,
 	uint8_t end_ch_num, band_end_ch;
 	uint32_t en_lte_coex;
 	tHalHandle hal = CDS_GET_HAL_CB(sap_ctx->p_cds_gctx);
+#ifdef FEATURE_WLAN_CH_AVOID
+	uint8_t i;
+#endif
 	tpAniSirGlobal mac_ctx;
 	tSapChSelSpectInfo spect_info_obj = { NULL, 0 };
 	uint16_t ch_width;
-	uint8_t i;
-	uint8_t ch;
 
 	if (NULL == hal) {
 		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_ERROR,
@@ -4918,10 +4916,6 @@ static QDF_STATUS sap_get_channel_list(ptSapContext sap_ctx,
 		      CDS_CHANNEL_STATE(loop_count)))))
 			continue;
 
-		if (CDS_CHANNEL_NUM(loop_count) == 12 ||
-		    CDS_CHANNEL_NUM(loop_count) == 13)
-			continue;
-
 		/*
 		 * Skip the channels which are not in ACS config from user
 		 * space
@@ -4934,13 +4928,9 @@ static QDF_STATUS sap_get_channel_list(ptSapContext sap_ctx,
 		/* Dont scan DFS channels in case of MCC disallowed
 		 * As it can result in SAP starting on DFS channel
 		 * resulting  MCC on DFS channel
-		 * Also if the dfs master mode in not enabled, exclude the
-		 * dfs channels, as the user doesnt want the SAP bringup on
-		 * dfs channel.
 		 */
 		if (CDS_IS_DFS_CH(CDS_CHANNEL_NUM(loop_count)) &&
-		   (cds_disallow_mcc(CDS_CHANNEL_NUM(loop_count)) ||
-		    !sap_ctx->acs_cfg->dfs_master_enable))
+				  cds_disallow_mcc(CDS_CHANNEL_NUM(loop_count)))
 			continue;
 
 		/*
@@ -4963,8 +4953,17 @@ static QDF_STATUS sap_get_channel_list(ptSapContext sap_ctx,
 				continue;
 		}
 
-		ch = CDS_CHANNEL_NUM(loop_count);
+#ifdef FEATURE_WLAN_CH_AVOID
+		for (i = 0; i < NUM_CHANNELS; i++) {
+			if (safe_channels[i].channelNumber ==
+			     CDS_CHANNEL_NUM(loop_count)) {
+				/* Check if channel is safe */
+				if (true == safe_channels[i].isSafe) {
+#endif
 #ifdef FEATURE_WLAN_AP_AP_ACS_OPTIMIZE
+		uint8_t ch;
+
+		ch = CDS_CHANNEL_NUM(loop_count);
 		if ((sap_ctx->acs_cfg->skip_scan_status ==
 			eSAP_DO_PAR_ACS_SCAN)) {
 		    if ((ch >= sap_ctx->acs_cfg->skip_scan_range1_stch &&
@@ -4994,8 +4993,14 @@ static QDF_STATUS sap_get_channel_list(ptSapContext sap_ctx,
 				ch_count, ch);
 		}
 #else
-		list[ch_count] = ch;
+		list[ch_count] = CDS_CHANNEL_NUM(loop_count);
 		ch_count++;
+#endif
+#ifdef FEATURE_WLAN_CH_AVOID
+				}
+				break;
+			}
+		}
 #endif
 	}
 

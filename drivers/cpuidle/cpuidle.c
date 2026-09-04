@@ -106,6 +106,8 @@ void cpuidle_use_deepest_state(bool enable)
 	preempt_disable();
 	dev = cpuidle_get_device();
 	dev->use_deepest_state = enable;
+	if (dev)
+		dev->use_deepest_state = enable;
 	preempt_enable();
 }
 
@@ -234,14 +236,13 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 	sched_idle_set_state(target_state, index);
 
 	trace_cpu_idle_rcuidle(index, dev->cpu);
-	time_start = ns_to_ktime(local_clock());
+	time_start = ktime_get();
 
 	stop_critical_timings();
 	entered_state = target_state->enter(dev, drv, index);
 	start_critical_timings();
 
-	sched_clock_idle_wakeup_event();
-	time_end = ns_to_ktime(local_clock());
+	time_end = ktime_get();
 	trace_cpu_idle_rcuidle(PWR_EVENT_EXIT, dev->cpu);
 
 	/* The cpu is no longer idle or about to enter idle. */
@@ -257,17 +258,17 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 	if (!cpuidle_state_is_coupled(drv, index))
 		local_irq_enable();
 
-	diff = ktime_us_delta(time_end, time_start);
-	if (diff > INT_MAX)
-		diff = INT_MAX;
-
-	dev->last_residency = (int) diff;
-
 	if (entered_state >= 0) {
-		/* Update cpuidle counters */
-		/* This can be moved to within driver enter routine
+		/*
+		 * Update cpuidle counters
+		 * This can be moved to within driver enter routine,
 		 * but that results in multiple copies of same code.
 		 */
+		diff = ktime_to_us(ktime_sub(time_end, time_start));
+		if (diff > INT_MAX)
+			diff = INT_MAX;
+
+		dev->last_residency = (int)diff;
 		dev->states_usage[entered_state].time += dev->last_residency;
 		dev->states_usage[entered_state].usage++;
 	} else {
@@ -407,12 +408,9 @@ int cpuidle_enable_device(struct cpuidle_device *dev)
 	if (dev->enabled)
 		return 0;
 
-	if (!cpuidle_curr_governor)
-		return -EIO;
-
 	drv = cpuidle_get_cpu_driver(dev);
 
-	if (!drv)
+	if (!drv || !cpuidle_curr_governor)
 		return -EIO;
 
 	if (!dev->registered)
@@ -422,11 +420,9 @@ int cpuidle_enable_device(struct cpuidle_device *dev)
 	if (ret)
 		return ret;
 
-	if (cpuidle_curr_governor->enable) {
-		ret = cpuidle_curr_governor->enable(drv, dev);
-		if (ret)
-			goto fail_sysfs;
-	}
+	if (cpuidle_curr_governor->enable &&
+	    (ret = cpuidle_curr_governor->enable(drv, dev)))
+		goto fail_sysfs;
 
 	smp_wmb();
 

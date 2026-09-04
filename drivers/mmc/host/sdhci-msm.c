@@ -5091,11 +5091,11 @@ defer_disable_host_irq:
 	if (host->is_crypto_en) {
 		ret = sdhci_msm_ice_suspend(host);
 		if (ret < 0)
-			pr_err("%s: failed to suspend crypto engine %d\n",
+			pr_debug("%s: failed to suspend crypto engine %d\n",
 					mmc_hostname(host->mmc), ret);
 	}
-	//trace_sdhci_msm_runtime_suspend(mmc_hostname(host->mmc), 0,
-	//		ktime_to_us(ktime_sub(ktime_get(), start)));
+	trace_sdhci_msm_runtime_suspend(mmc_hostname(host->mmc), 0,
+			ktime_to_us(ktime_sub(ktime_get(), start)));
 	return 0;
 }
 
@@ -5116,7 +5116,7 @@ static int sdhci_msm_runtime_resume(struct device *dev)
 		}
 		ret = sdhci_msm_ice_resume(host);
 		if (ret)
-			pr_err("%s: failed to resume crypto engine %d\n",
+			pr_debug("%s: failed to resume crypto engine %d\n",
 					mmc_hostname(host->mmc), ret);
 	}
 skip_ice_resume:
@@ -5128,8 +5128,8 @@ skip_ice_resume:
 defer_enable_host_irq:
 	enable_irq(msm_host->pwr_irq);
 
-	//trace_sdhci_msm_runtime_resume(mmc_hostname(host->mmc), 0,
-	//		ktime_to_us(ktime_sub(ktime_get(), start)));
+	trace_sdhci_msm_runtime_resume(mmc_hostname(host->mmc), 0,
+			ktime_to_us(ktime_sub(ktime_get(), start)));
 	return 0;
 }
 
@@ -5163,8 +5163,8 @@ out:
 			sdhci_cfg_irq(host, false, true);
 	}
 
-	//trace_sdhci_msm_suspend(mmc_hostname(host->mmc), ret,
-	//		ktime_to_us(ktime_sub(ktime_get(), start)));
+	trace_sdhci_msm_suspend(mmc_hostname(host->mmc), ret,
+			ktime_to_us(ktime_sub(ktime_get(), start)));
 	return ret;
 }
 
@@ -5195,8 +5195,8 @@ out:
 			sdhci_cfg_irq(host, true, true);
 	}
 
-	//trace_sdhci_msm_resume(mmc_hostname(host->mmc), ret,
-	//		ktime_to_us(ktime_sub(ktime_get(), start)));
+	trace_sdhci_msm_resume(mmc_hostname(host->mmc), ret,
+			ktime_to_us(ktime_sub(ktime_get(), start)));
 	return ret;
 }
 

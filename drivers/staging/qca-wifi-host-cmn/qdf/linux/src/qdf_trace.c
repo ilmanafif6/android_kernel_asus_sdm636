@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2018,2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2018 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1946,9 +1946,7 @@ void qdf_dp_trace_data_pkt(qdf_nbuf_t nbuf,
 	if (qdf_dp_enable_check(nbuf, code, dir) == false)
 		return;
 
-	qdf_dp_add_record(code,
-			  nbuf ? qdf_nbuf_data(nbuf) : NULL,
-			  nbuf ? nbuf->len - nbuf->data_len : 0,
+	qdf_dp_add_record(code, qdf_nbuf_data(nbuf), nbuf->len - nbuf->data_len,
 			  (uint8_t *)&buf, sizeof(struct qdf_dp_trace_data_buf),
 			  (nbuf) ? QDF_NBUF_CB_DP_TRACE_PRINT(nbuf)
 			  : false);
@@ -2431,27 +2429,26 @@ QDF_STATUS qdf_dpt_dump_stats_debugfs(qdf_debugfs_file_t file,
 			break;
 
 		case QDF_DP_TRACE_HDD_TX_TIMEOUT:
-			qdf_debugfs_printf(
-					file, "DPT: %04d: %llu %s\n",
-					i, p_record.time,
-					qdf_dp_code_to_string(p_record.code));
-			qdf_debugfs_printf(file, "HDD TX Timeout\n");
+			qdf_debugfs_printf(file, "DPT: %04d: %s %s\n",
+				i, p_record.time,
+				qdf_dp_code_to_string(p_record.code));
+			qdf_debugfs_printf(file, "%s: HDD TX Timeout\n");
 			break;
 
 		case QDF_DP_TRACE_HDD_SOFTAP_TX_TIMEOUT:
-			qdf_debugfs_printf(
-					file, "DPT: %04d: %llu %s\n",
-					i, p_record.time,
-					qdf_dp_code_to_string(p_record.code));
-			qdf_debugfs_printf(file, "HDD SoftAP TX Timeout\n");
+			qdf_debugfs_printf(file, "%04d: %llu %s\n",
+				i, p_record.time,
+				qdf_dp_code_to_string(p_record.code));
+			qdf_debugfs_printf(file,
+					   "%s: HDD  SoftAP TX Timeout\n");
 			break;
 
 		case QDF_DP_TRACE_CE_FAST_PACKET_ERR_RECORD:
-			qdf_debugfs_printf(
-					file, "DPT: %04d: %llu %s\n",
-					i, p_record.time,
-					qdf_dp_code_to_string(p_record.code));
-			qdf_debugfs_printf(file, "CE Fast Packet Error\n");
+			qdf_debugfs_printf(file, "DPT: %llu: %s %s\n",
+				i, p_record.time,
+				qdf_dp_code_to_string(p_record.code));
+			qdf_debugfs_printf(file,
+					   "%s: CE Fast Packet Error\n");
 			break;
 
 		case QDF_DP_TRACE_MAX:

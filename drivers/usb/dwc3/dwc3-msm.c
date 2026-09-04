@@ -56,6 +56,8 @@
 #include "xhci.h"
 
 #define SDP_CONNETION_CHECK_TIME 10000 /* in ms */
+#define DWC3_IDEV_CHG_MAX 2500
+#define DWC3_HVDCP_CHG_MAX 2500
 
 /* time out to wait for USB cable status notification (in ms)*/
 #define SM_INIT_TIMEOUT 30000
@@ -2211,6 +2213,8 @@ static int dwc3_msm_suspend(struct dwc3_msm *mdwc, bool hibernation)
 		dev_dbg(mdwc->dev, "defer suspend with %d(msecs)\n",
 					mdwc->lpm_to_suspend_delay);
 		pm_wakeup_event(mdwc->dev, mdwc->lpm_to_suspend_delay);
+	} else {
+		pm_relax(mdwc->dev);
 	}
 
 	atomic_set(&dwc->in_lpm, 1);
@@ -2258,6 +2262,8 @@ static int dwc3_msm_resume(struct dwc3_msm *mdwc)
 		mutex_unlock(&mdwc->suspend_resume_mutex);
 		return 0;
 	}
+
+	pm_stay_awake(mdwc->dev);
 
 	/* Enable bus voting */
 	if (mdwc->bus_perf_client) {

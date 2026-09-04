@@ -208,8 +208,8 @@ static inline bool _isidle(struct adreno_device *adreno_dev)
 	if (!kgsl_state_is_awake(KGSL_DEVICE(adreno_dev)))
 		goto ret;
 
-	if (adreno_rb_empty(adreno_dev->cur_rb))
-		goto ret;
+	if (!adreno_rb_empty(adreno_dev->cur_rb))
+		return false;
 
 	/* only check rbbm status to determine if GPU is idle */
 	adreno_readreg(adreno_dev, ADRENO_REG_RBBM_STATUS, &reg_rbbm_status);
@@ -560,6 +560,8 @@ static int sendcmd(struct adreno_device *adreno_dev,
 		mutex_unlock(&device->mutex);
 		return -EBUSY;
 	}
+
+	memset(&time, 0x0, sizeof(time));
 
 	dispatcher->inflight++;
 	dispatch_q->inflight++;
@@ -1176,6 +1178,12 @@ static inline int _verify_cmdobj(struct kgsl_device_private *dev_priv,
 					&ADRENO_CONTEXT(context)->base, ib)
 					== false)
 					return -EINVAL;
+			/*
+			 * Clear the wake on touch bit to indicate an IB has
+			 * been submitted since the last time we set it.
+			 * But only clear it when we have rendering commands.
+			 */
+			device->flags &= ~KGSL_FLAG_WAKE_ON_TOUCH;
 		}
 
 		/* A3XX does not have support for drawobj profiling */
@@ -1416,6 +1424,22 @@ int adreno_dispatcher_queue_cmds(struct kgsl_device_private *dev_priv,
 		}
 	}
 
+	/*
+	 * If there is only one drawobj in the array and it is of
+	 * type SYNCOBJ_TYPE, skip comparing user_ts as it can be 0
+	 */
+	if (!(count == 1 && drawobj[0]->type == SYNCOBJ_TYPE) &&
+		(drawctxt->base.flags & KGSL_CONTEXT_USER_GENERATED_TS)) {
+		/*
+		 * User specified timestamps need to be greater than the last
+		 * issued timestamp in the context
+		 */
+		if (timestamp_cmp(drawctxt->timestamp, user_ts) >= 0) {
+			spin_unlock(&drawctxt->lock);
+			return -ERANGE;
+		}
+	}
+
 	for (i = 0; i < count; i++) {
 
 		switch (drawobj[i]->type) {
@@ -1471,7 +1495,9 @@ int adreno_dispatcher_queue_cmds(struct kgsl_device_private *dev_priv,
 
 	spin_unlock(&drawctxt->lock);
 
-	kgsl_pwrctrl_update_l2pc(&adreno_dev->dev);
+	if (device->pwrctrl.l2pc_update_queue)
+		kgsl_pwrctrl_update_l2pc(&adreno_dev->dev,
+				KGSL_L2PC_QUEUE_TIMEOUT);
 
 	/* Add the context to the dispatcher pending list */
 	dispatcher_queue_context(adreno_dev, drawctxt);
@@ -2516,7 +2542,7 @@ void adreno_dispatcher_schedule(struct kgsl_device *device)
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	struct adreno_dispatcher *dispatcher = &adreno_dev->dispatcher;
 
-	queue_kthread_work(&kgsl_driver.worker, &dispatcher->work);
+	kthread_queue_work(&kgsl_driver.worker, &dispatcher->work);
 }
 
 /**
@@ -2812,7 +2838,7 @@ int adreno_dispatcher_init(struct adreno_device *adreno_dev)
 	setup_timer(&dispatcher->fault_timer, adreno_dispatcher_fault_timer,
 		(unsigned long) adreno_dev);
 
-	init_kthread_work(&dispatcher->work, adreno_dispatcher_work);
+	kthread_init_work(&dispatcher->work, adreno_dispatcher_work);
 
 	init_completion(&dispatcher->idle_gate);
 	complete_all(&dispatcher->idle_gate);

@@ -242,8 +242,9 @@ static struct blkcg_gq *blkg_create(struct blkcg *blkcg,
 
 	if (!ret) {
 		char name_buf[NAME_MAX + 1];
+
 		cgroup_name(blkg->blkcg->css.cgroup, name_buf, sizeof(name_buf));
-		if (!strncmp(name_buf, "background", strlen("background")+1) && !blkcg_bg)
+		if (!strncmp(name_buf, "background", strlen("background") + 1) && !blkcg_bg)
 			blkcg_bg = blkg->blkcg;
 		return blkg;
 	}

@@ -38,13 +38,13 @@ struct blk_flush_queue;
 struct pr_ops;
 
 #define BLKDEV_MIN_RQ	4
-#define BLKDEV_MAX_RQ	32	/* Default maximum */
+#define BLKDEV_MAX_RQ	128	/* Default maximum */
 
 /*
  * Maximum number of blkcg policies allowed to be registered concurrently.
  * Defined here to simplify include dependency.
  */
-#define BLKCG_MAX_POLS		2
+#define BLKCG_MAX_POLS		3
 
 struct request;
 typedef void (rq_end_io_fn)(struct request *, int);
@@ -267,7 +267,6 @@ struct queue_limits {
 	unsigned int		max_sectors;
 	unsigned int		max_segment_size;
 	unsigned int		physical_block_size;
-	unsigned int		logical_block_size;
 	unsigned int		alignment_offset;
 	unsigned int		io_min;
 	unsigned int		io_opt;
@@ -277,6 +276,7 @@ struct queue_limits {
 	unsigned int		discard_granularity;
 	unsigned int		discard_alignment;
 
+	unsigned short		logical_block_size;
 	unsigned short		max_segments;
 	unsigned short		max_integrity_segments;
 
@@ -434,8 +434,7 @@ struct request_queue {
 	unsigned int		sg_reserved_size;
 	int			node;
 #ifdef CONFIG_BLK_DEV_IO_TRACE
-	struct blk_trace __rcu	*blk_trace;
-	struct mutex		blk_trace_mutex;
+	struct blk_trace	*blk_trace;
 #endif
 	/*
 	 * for flush operations
@@ -839,19 +838,6 @@ static inline struct request_queue *bdev_get_queue(struct block_device *bdev)
 }
 
 /*
- * The basic unit of block I/O is a sector. It is used in a number of contexts
- * in Linux (blk, bio, genhd). The size of one sector is 512 = 2**9
- * bytes. Variables of type sector_t represent an offset or size that is a
- * multiple of 512 bytes. Hence these two constants.
- */
-#ifndef SECTOR_SHIFT
-#define SECTOR_SHIFT 9
-#endif
-#ifndef SECTOR_SIZE
-#define SECTOR_SIZE (1 << SECTOR_SHIFT)
-#endif
-
-/*
  * blk_rq_pos()			: the current sector
  * blk_rq_bytes()		: bytes left in the entire request
  * blk_rq_cur_bytes()		: bytes left in the current segment
@@ -878,20 +864,19 @@ extern unsigned int blk_rq_err_bytes(const struct request *rq);
 
 static inline unsigned int blk_rq_sectors(const struct request *rq)
 {
-	return blk_rq_bytes(rq) >> SECTOR_SHIFT;
+	return blk_rq_bytes(rq) >> 9;
 }
 
 static inline unsigned int blk_rq_cur_sectors(const struct request *rq)
 {
-	return blk_rq_cur_bytes(rq) >> SECTOR_SHIFT;
+	return blk_rq_cur_bytes(rq) >> 9;
 }
 
 static inline unsigned int blk_queue_get_max_sectors(struct request_queue *q,
 						     unsigned int cmd_flags)
 {
 	if (unlikely(cmd_flags & REQ_DISCARD))
-		return min(q->limits.max_discard_sectors,
-			   UINT_MAX >> SECTOR_SHIFT);
+		return min(q->limits.max_discard_sectors, UINT_MAX >> 9);
 
 	if (unlikely(cmd_flags & REQ_WRITE_SAME))
 		return q->limits.max_write_same_sectors;
@@ -996,7 +981,7 @@ extern void blk_queue_max_discard_sectors(struct request_queue *q,
 		unsigned int max_discard_sectors);
 extern void blk_queue_max_write_same_sectors(struct request_queue *q,
 		unsigned int max_write_same_sectors);
-extern void blk_queue_logical_block_size(struct request_queue *, unsigned int);
+extern void blk_queue_logical_block_size(struct request_queue *, unsigned short);
 extern void blk_queue_physical_block_size(struct request_queue *, unsigned int);
 extern void blk_queue_alignment_offset(struct request_queue *q,
 				       unsigned int alignment);
@@ -1157,21 +1142,16 @@ extern int blkdev_issue_zeroout(struct block_device *bdev, sector_t sector,
 static inline int sb_issue_discard(struct super_block *sb, sector_t block,
 		sector_t nr_blocks, gfp_t gfp_mask, unsigned long flags)
 {
-	return blkdev_issue_discard(sb->s_bdev,
-				    block << (sb->s_blocksize_bits -
-					      SECTOR_SHIFT),
-				    nr_blocks << (sb->s_blocksize_bits -
-						  SECTOR_SHIFT),
+	return blkdev_issue_discard(sb->s_bdev, block << (sb->s_blocksize_bits - 9),
+				    nr_blocks << (sb->s_blocksize_bits - 9),
 				    gfp_mask, flags);
 }
 static inline int sb_issue_zeroout(struct super_block *sb, sector_t block,
 		sector_t nr_blocks, gfp_t gfp_mask)
 {
 	return blkdev_issue_zeroout(sb->s_bdev,
-				    block << (sb->s_blocksize_bits -
-					      SECTOR_SHIFT),
-				    nr_blocks << (sb->s_blocksize_bits -
-						  SECTOR_SHIFT),
+				    block << (sb->s_blocksize_bits - 9),
+				    nr_blocks << (sb->s_blocksize_bits - 9),
 				    gfp_mask, true);
 }
 
@@ -1222,7 +1202,7 @@ static inline unsigned int queue_max_segment_size(struct request_queue *q)
 	return q->limits.max_segment_size;
 }
 
-static inline unsigned queue_logical_block_size(struct request_queue *q)
+static inline unsigned short queue_logical_block_size(struct request_queue *q)
 {
 	int retval = 512;
 
@@ -1232,7 +1212,7 @@ static inline unsigned queue_logical_block_size(struct request_queue *q)
 	return retval;
 }
 
-static inline unsigned int bdev_logical_block_size(struct block_device *bdev)
+static inline unsigned short bdev_logical_block_size(struct block_device *bdev)
 {
 	return queue_logical_block_size(bdev_get_queue(bdev));
 }
@@ -1278,8 +1258,7 @@ static inline int queue_alignment_offset(struct request_queue *q)
 static inline int queue_limit_alignment_offset(struct queue_limits *lim, sector_t sector)
 {
 	unsigned int granularity = max(lim->physical_block_size, lim->io_min);
-	unsigned int alignment = sector_div(sector, granularity >> SECTOR_SHIFT)
-		<< SECTOR_SHIFT;
+	unsigned int alignment = sector_div(sector, granularity >> 9) << 9;
 
 	return (granularity + lim->alignment_offset - alignment) % granularity;
 }
@@ -1313,8 +1292,8 @@ static inline int queue_limit_discard_alignment(struct queue_limits *lim, sector
 		return 0;
 
 	/* Why are these in bytes, not sectors? */
-	alignment = lim->discard_alignment >> SECTOR_SHIFT;
-	granularity = lim->discard_granularity >> SECTOR_SHIFT;
+	alignment = lim->discard_alignment >> 9;
+	granularity = lim->discard_granularity >> 9;
 	if (!granularity)
 		return 0;
 
@@ -1325,7 +1304,7 @@ static inline int queue_limit_discard_alignment(struct queue_limits *lim, sector
 	offset = (granularity + alignment - offset) % granularity;
 
 	/* Turn it back into bytes, gaah */
-	return offset << SECTOR_SHIFT;
+	return offset << 9;
 }
 
 static inline int bdev_discard_alignment(struct block_device *bdev)
@@ -1453,11 +1432,6 @@ int kblockd_schedule_delayed_work(struct delayed_work *dwork, unsigned long dela
 int kblockd_schedule_delayed_work_on(int cpu, struct delayed_work *dwork, unsigned long delay);
 
 #ifdef CONFIG_BLK_CGROUP
-/*
- * This should not be using sched_clock(). A real patch is in progress
- * to fix this up, until that is in place we need to disable preemption
- * around sched_clock() in this function and set_io_start_time_ns().
- */
 static inline void set_start_time_ns(struct request *req)
 {
 	req->start_time_ns = ktime_get_ns();

@@ -93,7 +93,6 @@ config PPC
 	select BINFMT_ELF
 	select ARCH_HAS_ELF_RANDOMIZE
 	select OF
-	select OF_DMA_DEFAULT_COHERENT		if !NOT_COHERENT_CACHE
 	select OF_EARLY_FLATTREE
 	select OF_RESERVED_MEM
 	select HAVE_FTRACE_MCOUNT_RECORD
@@ -579,7 +578,7 @@ config PPC_64K_PAGES
 
 config PPC_256K_PAGES
 	bool "256k page size"
-	depends on 44x && !STDBINUTILS && !PPC_47x
+	depends on 44x && !STDBINUTILS
 	help
 	  Make the page size 256k.
 

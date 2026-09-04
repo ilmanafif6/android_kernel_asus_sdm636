@@ -19,7 +19,6 @@
 
 #include <linux/cpu.h>
 #include <linux/cpufreq.h>
-#include <linux/cpufreq_times.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/init.h>
@@ -372,33 +371,23 @@ static void adjust_jiffies(unsigned long val, struct cpufreq_freqs *ci)
  *********************************************************************/
 
 static DEFINE_PER_CPU(unsigned long, freq_scale) = SCHED_CAPACITY_SCALE;
+static DEFINE_PER_CPU(unsigned long, max_freq_cpu);
 static DEFINE_PER_CPU(unsigned long, max_freq_scale) = SCHED_CAPACITY_SCALE;
 
 static void
-scale_freq_capacity(struct cpufreq_policy *policy, struct cpufreq_freqs *freqs)
+scale_freq_capacity(const cpumask_t *cpus, unsigned long cur_freq,
+		    unsigned long max_freq)
 {
-	unsigned long cur = freqs ? freqs->new : policy->cur;
-	unsigned long scale = (cur << SCHED_CAPACITY_SHIFT) / policy->max;
-	struct cpufreq_cpuinfo *cpuinfo = &policy->cpuinfo;
+	unsigned long scale = (cur_freq << SCHED_CAPACITY_SHIFT) / max_freq;
 	int cpu;
 
-	pr_debug("cpus %*pbl cur/cur max freq %lu/%u kHz freq scale %lu\n",
-		 cpumask_pr_args(policy->cpus), cur, policy->max, scale);
-
-	for_each_cpu(cpu, policy->cpus)
+	for_each_cpu(cpu, cpus) {
 		per_cpu(freq_scale, cpu) = scale;
+		per_cpu(max_freq_cpu, cpu) = max_freq;
+	}
 
-	if (freqs)
-		return;
-
-	scale = (policy->max << SCHED_CAPACITY_SHIFT) / cpuinfo->max_freq;
-
-	pr_debug("cpus %*pbl cur max/max freq %u/%u kHz max freq scale %lu\n",
-		 cpumask_pr_args(policy->cpus), policy->max, cpuinfo->max_freq,
-		 scale);
-
-	for_each_cpu(cpu, policy->cpus)
-		per_cpu(max_freq_scale, cpu) = scale;
+	pr_debug("cpus %*pbl cur freq/max freq %lu/%lu kHz freq scale %lu\n",
+		 cpumask_pr_args(cpus), cur_freq, max_freq, scale);
 }
 
 unsigned long cpufreq_scale_freq_capacity(struct sched_domain *sd, int cpu)
@@ -406,7 +395,30 @@ unsigned long cpufreq_scale_freq_capacity(struct sched_domain *sd, int cpu)
 	return per_cpu(freq_scale, cpu);
 }
 
-unsigned long cpufreq_scale_max_freq_capacity(int cpu)
+static void
+scale_max_freq_capacity(const cpumask_t *cpus, unsigned long policy_max_freq)
+{
+	unsigned long scale, max_freq;
+	int cpu = cpumask_first(cpus);
+
+	if (cpu >= nr_cpu_ids)
+		return;
+
+	max_freq = per_cpu(max_freq_cpu, cpu);
+
+	if (!max_freq)
+		return;
+
+	scale = (policy_max_freq << SCHED_CAPACITY_SHIFT) / max_freq;
+
+	for_each_cpu(cpu, cpus)
+		per_cpu(max_freq_scale, cpu) = scale;
+
+	pr_debug("cpus %*pbl policy max freq/max freq %lu/%lu kHz max freq scale %lu\n",
+		 cpumask_pr_args(cpus), policy_max_freq, max_freq, scale);
+}
+
+unsigned long cpufreq_scale_max_freq_capacity(struct sched_domain *sd, int cpu)
 {
 	return per_cpu(max_freq_scale, cpu);
 }
@@ -448,7 +460,6 @@ static void __cpufreq_notify_transition(struct cpufreq_policy *policy,
 		pr_debug("FREQ: %lu - CPU: %lu\n",
 			 (unsigned long)freqs->new, (unsigned long)freqs->cpu);
 		trace_cpu_frequency(freqs->new, freqs->cpu);
-		cpufreq_times_record_transition(freqs);
 		srcu_notifier_call_chain(&cpufreq_transition_notifier_list,
 				CPUFREQ_POSTCHANGE, freqs);
 		if (likely(policy) && likely(policy->cpu == freqs->cpu))
@@ -518,7 +529,7 @@ wait:
 
 	spin_unlock(&policy->transition_lock);
 
-	scale_freq_capacity(policy, freqs);
+	scale_freq_capacity(policy->cpus, freqs->new, policy->cpuinfo.max_freq);
 #ifdef CONFIG_SMP
 	for_each_cpu(cpu, policy->cpus)
 		trace_cpu_capacity(capacity_curr_of(cpu), cpu);
@@ -649,8 +660,25 @@ static int cpufreq_parse_governor(char *str_governor, unsigned int *policy,
 			ret = request_module("cpufreq_%s", str_governor);
 			mutex_lock(&cpufreq_governor_mutex);
 
+			/*
+			 * At this point, if the governor was found via module
+			 * search, it will load it. However, if it didn't, we
+			 * are just going to exit without doing anything to
+			 * the governor. Most of the time, this is totally
+			 * fine; the one scenario where it's not is when a ROM
+			 * has a boot script that requests a governor that
+			 * exists in the default kernel but not in this one.
+			 * This kernel (and nearly every other Android kernel)
+			 * has the performance governor as default for boot
+			 * performance which is then changed to another,
+			 * usually schedutil. So, instead of just exiting if
+			 * the requested governor wasn't found, let's try
+			 * falling back to schedutil before falling out.
+			 */
 			if (ret == 0)
 				t = find_governor(str_governor);
+			else
+				t = find_governor("schedutil");
 		}
 
 		if (t != NULL) {
@@ -707,6 +735,12 @@ static ssize_t store_##file_name					\
 {									\
 	int ret, temp;							\
 	struct cpufreq_policy new_policy;				\
+									\
+	if (&policy->object == &policy->min)				\
+		return count;						\
+									\
+	if (&policy->object == &policy->max)				\
+		return count;						\
 									\
 	memcpy(&new_policy, policy, sizeof(*policy));			\
 	new_policy.min = policy->user_policy.min;			\
@@ -1364,7 +1398,6 @@ static int cpufreq_online(unsigned int cpu)
 			goto out_exit_policy;
 		blocking_notifier_call_chain(&cpufreq_policy_notifier_list,
 				CPUFREQ_CREATE_POLICY, policy);
-		cpufreq_times_create_policy(policy);
 
 		write_lock_irqsave(&cpufreq_driver_lock, flags);
 		list_add(&policy->policy_list, &cpufreq_policy_list);
@@ -2270,7 +2303,7 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 	blocking_notifier_call_chain(&cpufreq_policy_notifier_list,
 			CPUFREQ_NOTIFY, new_policy);
 
-	scale_freq_capacity(new_policy, NULL);
+	scale_max_freq_capacity(policy->cpus, policy->max);
 
 	policy->min = new_policy->min;
 	policy->max = new_policy->max;
@@ -2302,7 +2335,10 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 			return ret;
 		}
 
+		up_write(&policy->rwsem);
 		ret = __cpufreq_governor(policy, CPUFREQ_GOV_POLICY_EXIT);
+		down_write(&policy->rwsem);
+
 		if (ret) {
 			pr_err("%s: Failed to Exit Governor: %s (%d)\n",
 			       __func__, old_gov->name, ret);
@@ -2318,7 +2354,9 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 		if (!ret)
 			goto out;
 
+		up_write(&policy->rwsem);
 		__cpufreq_governor(policy, CPUFREQ_GOV_POLICY_EXIT);
+		down_write(&policy->rwsem);
 	}
 
 	/* new governor failed, so re-start old one */
@@ -2422,6 +2460,107 @@ static int cpufreq_cpu_callback(struct notifier_block *nfb,
 static struct notifier_block __refdata cpufreq_cpu_notifier = {
 	.notifier_call = cpufreq_cpu_callback,
 };
+
+static bool underclocked;
+
+static int cluster_0[4] = { 0, 1, 2, 3 };
+static int cluster_1[4] = { 4, 5, 6, 7 };
+
+static int cluster_0_lastfreq;
+static int cluster_0_ucfreq = CONFIG_CPU_UNDERCLOCK_FREQ_LP;
+module_param_named(cluster_0_ucfreq, cluster_0_ucfreq, int, 0644);
+
+static int cluster_1_lastfreq;
+static int cluster_1_ucfreq = CONFIG_CPU_UNDERCLOCK_FREQ_PERF;
+module_param_named(cluster_1_ucfreq, cluster_1_ucfreq, int, 0644);
+
+static inline int cpufreq_underclock_check_cluster(int cpu)
+{
+	int length = 0, i = 0;
+
+	//LP
+	length = sizeof(cluster_0) / sizeof(int);
+	for (i = 0; i < length; i++) {
+	if (cluster_0[i] == cpu)
+		return 0;
+	}
+
+	//PERF
+	length = sizeof(cluster_1) / sizeof(int);
+	for (i = 0; i < length; i++) {
+	if (cluster_1[i] == cpu)
+		return 1;
+	}
+
+	return -EINVAL;
+}
+
+static inline void cpufreq_underclock_set(int cluster,
+					struct cpufreq_policy *policy, bool underclock)
+{
+	if (underclock) {
+		if (cluster_0_ucfreq == 0 || cluster_1_ucfreq == 0 || underclocked)
+			return;
+
+		switch(cluster) {
+			case 0:
+				cluster_0_lastfreq = policy->max;
+				policy->max = cluster_0_ucfreq;
+				pr_info("Underclocked cluster0 to %d \n", cluster_0_ucfreq);
+				break;
+			case 1:
+				cluster_1_lastfreq = policy->max;
+				policy->max = cluster_1_ucfreq;
+				pr_info("Underclocked cluster1 to %d \n", cluster_1_ucfreq);
+				break;
+		}
+	} else {
+		if (cluster_0_lastfreq == 0 || cluster_1_lastfreq == 0 || !underclocked)
+			return;
+
+		switch(cluster) {
+			case 0:
+				policy->max = cluster_0_lastfreq;
+				pr_info("Resumed cluster0 to %d \n", cluster_0_lastfreq);
+				break;
+			case 1:
+				policy->max = cluster_1_lastfreq;
+				pr_info("Resumed cluster1 to %d \n", cluster_1_lastfreq);
+				break;
+		}
+	}
+}
+
+int trigger_cpufreq_underclock(void)
+{
+	struct cpufreq_policy *policy;
+
+	pr_info("Triggered cpu underclock\n");
+
+	for_each_policy(policy) {
+		cpufreq_underclock_set(cpufreq_underclock_check_cluster(policy->cpu), policy, true);
+		__cpufreq_governor(policy, CPUFREQ_GOV_STOP);
+		__cpufreq_governor(policy, CPUFREQ_GOV_START);
+	}
+	underclocked = true;
+	return 0;
+}
+
+int resume_cpufreq_underclock(void)
+{
+	struct cpufreq_policy *policy;
+
+	pr_info("Resumed cpu underclock\n");
+
+	for_each_policy(policy) {
+		cpufreq_underclock_set(cpufreq_underclock_check_cluster(policy->cpu), policy, false);
+		__cpufreq_governor(policy, CPUFREQ_GOV_STOP);
+		__cpufreq_governor(policy, CPUFREQ_GOV_START);
+
+	}
+	underclocked = false;
+	return 0;
+}
 
 /*********************************************************************
  *               BOOST						     *
@@ -2534,6 +2673,17 @@ int cpufreq_boost_enabled(void)
 EXPORT_SYMBOL_GPL(cpufreq_boost_enabled);
 
 /*********************************************************************
+ *               FREQUENCY INVARIANT ACCOUNTING SUPPORT              *
+ *********************************************************************/
+
+__weak void arch_set_freq_scale(struct cpumask *cpus,
+				unsigned long cur_freq,
+				unsigned long max_freq)
+{
+}
+EXPORT_SYMBOL_GPL(arch_set_freq_scale);
+
+/*********************************************************************
  *               REGISTER / UNREGISTER CPUFREQ DRIVER                *
  *********************************************************************/
 
@@ -2554,13 +2704,6 @@ int cpufreq_register_driver(struct cpufreq_driver *driver_data)
 
 	if (cpufreq_disabled())
 		return -ENODEV;
-
-	/*
-	 * The cpufreq core depends heavily on the availability of device
-	 * structure, make sure they are available before proceeding further.
-	 */
-	if (!get_cpu_device(0))
-		return -EPROBE_DEFER;
 
 	if (!driver_data || !driver_data->verify || !driver_data->init ||
 	    !(driver_data->setpolicy || driver_data->target_index ||

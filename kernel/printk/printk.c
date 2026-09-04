@@ -618,6 +618,7 @@ struct devkmsg_user {
 
 static ssize_t devkmsg_write(struct kiocb *iocb, struct iov_iter *from)
 {
+#if 0
 	char *buf, *line;
 	int level = default_message_loglevel;
 	int facility = 1;	/* LOG_USER */
@@ -647,6 +648,10 @@ static ssize_t devkmsg_write(struct kiocb *iocb, struct iov_iter *from)
 	 */
 	line = buf;
 	if (line[0] == '<') {
+		if (memcmp(line+3, "batteryd", sizeof("batteryd")-1) == 0 ||
+			   memcmp(line+3, "healthd", sizeof("healthd")-1) == 0)
+			goto ignore;
+		{
 		char *endp = NULL;
 		unsigned int u;
 
@@ -661,11 +666,17 @@ static ssize_t devkmsg_write(struct kiocb *iocb, struct iov_iter *from)
 			if (strstr(line, "logd"))
 				return ret;
 		}
+		}
 	}
 
 	printk_emit(facility, level, NULL, 0, "%s", line);
+
+ignore:
 	kfree(buf);
 	return ret;
+#else
+	return iov_iter_count(from);
+#endif
 }
 
 static ssize_t devkmsg_read(struct file *file, char __user *buf,
@@ -2041,16 +2052,6 @@ static int __init console_setup(char *str)
 	char *s, *options, *brl_options = NULL;
 	int idx;
 
-	/*
-	 * console="" or console=null have been suggested as a way to
-	 * disable console output. Use ttynull that has been created
-	 * for exacly this purpose.
-	 */
-	if (str[0] == 0 || strcmp(str, "null") == 0) {
-		__add_preferred_console("ttynull", 0, NULL, NULL);
-		return 1;
-	}
-
 	if (_braille_console_setup(&str, &brl_options))
 		return 1;
 
@@ -2103,7 +2104,7 @@ int add_preferred_console(char *name, int idx, char *options)
 	return __add_preferred_console(name, idx, options, NULL);
 }
 
-bool console_suspend_enabled = true;
+bool console_suspend_enabled = false;
 EXPORT_SYMBOL(console_suspend_enabled);
 
 static int __init console_suspend_disable(char *str)
@@ -2126,7 +2127,7 @@ void suspend_console(void)
 {
 	if (!console_suspend_enabled)
 		return;
-	printk("Suspending console(s) (use no_console_suspend to debug)\n");
+	pr_debug("Suspending console(s) (use no_console_suspend to debug)\n");
 	console_lock();
 	console_suspended = 1;
 	up_console_sem();

@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2011-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1653,9 +1654,9 @@ lim_populate_peer_rate_set(tpAniSirGlobal pMac,
 {
 	tSirMacRateSet tempRateSet;
 	tSirMacRateSet tempRateSet2;
-	uint32_t i, j, val, min, isArate;
-
-	isArate = 0;
+	uint32_t i, j, val, min;
+	uint8_t aRateIndex = 0;
+	uint8_t bRateIndex = 0;
 
 	/* copy operational rate set from psessionEntry */
 	if (psessionEntry->rateSet.numRates <= SIR_MAC_RATESET_EID_MAX) {
@@ -1700,51 +1701,54 @@ lim_populate_peer_rate_set(tpAniSirGlobal pMac,
 	 * Sort rates in tempRateSet (they are likely to be already sorted)
 	 * put the result in pSupportedRates
 	 */
-	{
-		uint8_t aRateIndex = 0;
-		uint8_t bRateIndex = 0;
 
-		qdf_mem_set((uint8_t *) pRates, sizeof(tSirSupportedRates), 0);
-		for (i = 0; i < tempRateSet.numRates; i++) {
-			min = 0;
-			val = 0xff;
-			isArate = 0;
-			for (j = 0;
-			     (j < tempRateSet.numRates)
-			     && (j < SIR_MAC_RATESET_EID_MAX); j++) {
-				if ((uint32_t) (tempRateSet.rate[j] & 0x7f) <
-				    val) {
-					val = tempRateSet.rate[j] & 0x7f;
-					min = j;
-				}
+	qdf_mem_zero(pRates, sizeof(*pRates));
+	for (i = 0; i < tempRateSet.numRates; i++) {
+		min = 0;
+		val = 0xff;
+		for (j = 0; (j < tempRateSet.numRates) &&
+		     (j < SIR_MAC_MAX_NUMBER_OF_RATES); j++) {
+			if ((uint32_t)(tempRateSet.rate[j] & 0x7f) <
+					val) {
+				val = tempRateSet.rate[j] & 0x7f;
+				min = j;
 			}
-			if (sirIsArate(tempRateSet.rate[min] & 0x7f))
-				isArate = 1;
-			/*
-			 * HAL needs to know whether the rate is basic rate or not, as it needs to
-			 * update the response rate table accordingly. e.g. if one of the 11a rates is
-			 * basic rate, then that rate can be used for sending control frames.
-			 * HAL updates the response rate table whenever basic rate set is changed.
-			 */
-			if (basicOnly) {
-				if (tempRateSet.rate[min] & 0x80) {
-					if (isArate)
-						pRates->llaRates[aRateIndex++] =
-							tempRateSet.rate[min];
-					else
-						pRates->llbRates[bRateIndex++] =
-							tempRateSet.rate[min];
-				}
-			} else {
-				if (isArate)
-					pRates->llaRates[aRateIndex++] =
-						tempRateSet.rate[min];
-				else
-					pRates->llbRates[bRateIndex++] =
-						tempRateSet.rate[min];
-			}
-			tempRateSet.rate[min] = 0xff;
 		}
+		/*
+		 * HAL needs to know whether the rate is basic rate or not, as it needs to
+		 * update the response rate table accordingly. e.g. if one of the 11a rates is
+		 * basic rate, then that rate can be used for sending control frames.
+		 * HAL updates the response rate table whenever basic rate set is changed.
+		 */
+		if (basicOnly && !(tempRateSet.rate[min] & 0x80)) {
+			pe_debug("Invalid basic rate");
+		} else if (sirIsArate(tempRateSet.rate[min] & 0x7f)) {
+			if (aRateIndex >= SIR_NUM_11A_RATES) {
+				pe_debug("OOB, aRateIndex: %d", aRateIndex);
+			} else if (aRateIndex >= 1 && (tempRateSet.rate[min] ==
+				   pRates->llaRates[aRateIndex - 1])) {
+				pe_debug("Duplicate 11a rate: %d",
+					 tempRateSet.rate[min]);
+			} else {
+				pRates->llaRates[aRateIndex++] =
+						tempRateSet.rate[min];
+			}
+		} else if (sirIsBrate(tempRateSet.rate[min] & 0x7f)) {
+			if (bRateIndex >= SIR_NUM_11B_RATES) {
+				pe_debug("OOB, bRateIndex: %d", bRateIndex);
+			} else if (bRateIndex >= 1 && (tempRateSet.rate[min] ==
+				   pRates->llbRates[bRateIndex - 1])) {
+				pe_debug("Duplicate 11b rate: %d",
+					 tempRateSet.rate[min]);
+			} else {
+				pRates->llbRates[bRateIndex++] =
+						tempRateSet.rate[min];
+			}
+		} else {
+			pe_debug("%d is neither 11a nor 11b rate",
+				 tempRateSet.rate[min]);
+		}
+		tempRateSet.rate[min] = 0xff;
 	}
 
 	if (IS_DOT11_MODE_HT(psessionEntry->dot11mode)) {
@@ -2032,46 +2036,46 @@ tSirRetStatus lim_populate_matching_rate_set(tpAniSirGlobal mac_ctx,
  *
  * Return: vht capabilities derived based on input parameters.
  */
-static uint32_t lim_populate_vht_caps(tDot11fIEVHTCaps input_caps)
+static uint32_t lim_populate_vht_caps(tDot11fIEVHTCaps *input_caps)
 {
 	uint32_t vht_caps;
 
-	vht_caps = ((input_caps.maxMPDULen << SIR_MAC_VHT_CAP_MAX_MPDU_LEN) |
-			(input_caps.supportedChannelWidthSet <<
+	vht_caps = ((input_caps->maxMPDULen << SIR_MAC_VHT_CAP_MAX_MPDU_LEN) |
+			(input_caps->supportedChannelWidthSet <<
 				 SIR_MAC_VHT_CAP_SUPP_CH_WIDTH_SET) |
-			(input_caps.ldpcCodingCap <<
+			(input_caps->ldpcCodingCap <<
 				SIR_MAC_VHT_CAP_LDPC_CODING_CAP) |
-			(input_caps.shortGI80MHz <<
+			(input_caps->shortGI80MHz <<
 				 SIR_MAC_VHT_CAP_SHORTGI_80MHZ) |
-			(input_caps.shortGI160and80plus80MHz <<
+			(input_caps->shortGI160and80plus80MHz <<
 				SIR_MAC_VHT_CAP_SHORTGI_160_80_80MHZ) |
-			(input_caps.txSTBC << SIR_MAC_VHT_CAP_TXSTBC) |
-			(input_caps.rxSTBC << SIR_MAC_VHT_CAP_RXSTBC) |
-			(input_caps.suBeamFormerCap <<
+			(input_caps->txSTBC << SIR_MAC_VHT_CAP_TXSTBC) |
+			(input_caps->rxSTBC << SIR_MAC_VHT_CAP_RXSTBC) |
+			(input_caps->suBeamFormerCap <<
 				SIR_MAC_VHT_CAP_SU_BEAMFORMER_CAP) |
-			(input_caps.suBeamformeeCap <<
+			(input_caps->suBeamformeeCap <<
 				SIR_MAC_VHT_CAP_SU_BEAMFORMEE_CAP) |
-			(input_caps.csnofBeamformerAntSup <<
+			(input_caps->csnofBeamformerAntSup <<
 				SIR_MAC_VHT_CAP_CSN_BEAMORMER_ANT_SUP) |
-			(input_caps.numSoundingDim <<
+			(input_caps->numSoundingDim <<
 				SIR_MAC_VHT_CAP_NUM_SOUNDING_DIM) |
-			(input_caps.muBeamformerCap <<
+			(input_caps->muBeamformerCap <<
 				SIR_MAC_VHT_CAP_NUM_BEAM_FORMER_CAP) |
-			(input_caps.muBeamformeeCap <<
+			(input_caps->muBeamformeeCap <<
 				SIR_MAC_VHT_CAP_NUM_BEAM_FORMEE_CAP) |
-			(input_caps.vhtTXOPPS <<
+			(input_caps->vhtTXOPPS <<
 				SIR_MAC_VHT_CAP_TXOPPS) |
-			(input_caps.htcVHTCap <<
+			(input_caps->htcVHTCap <<
 				 SIR_MAC_VHT_CAP_HTC_CAP) |
-			(input_caps.maxAMPDULenExp <<
+			(input_caps->maxAMPDULenExp <<
 				SIR_MAC_VHT_CAP_MAX_AMDU_LEN_EXPO) |
-			(input_caps.vhtLinkAdaptCap <<
+			(input_caps->vhtLinkAdaptCap <<
 				SIR_MAC_VHT_CAP_LINK_ADAPT_CAP) |
-			(input_caps.rxAntPattern <<
+			(input_caps->rxAntPattern <<
 				SIR_MAC_VHT_CAP_RX_ANTENNA_PATTERN) |
-			(input_caps.txAntPattern <<
+			(input_caps->txAntPattern <<
 				SIR_MAC_VHT_CAP_TX_ANTENNA_PATTERN) |
-			(input_caps.reserved1 <<
+			(input_caps->reserved1 <<
 				SIR_MAC_VHT_CAP_RESERVED2));
 
 	return vht_caps;
@@ -2343,7 +2347,7 @@ lim_add_sta(tpAniSirGlobal mac_ctx,
 
 		if (assoc_req && add_sta_params->vhtCapable)
 			add_sta_params->vht_caps =
-				 lim_populate_vht_caps(assoc_req->VHTCaps);
+				 lim_populate_vht_caps(&assoc_req->VHTCaps);
 	} else if (LIM_IS_IBSS_ROLE(session_entry)) {
 
 		/*
@@ -2382,7 +2386,7 @@ lim_add_sta(tpAniSirGlobal mac_ctx,
 			 SIR_MAC_HT_CAP_DSSSCCK40_S);
 
 		add_sta_params->vht_caps =
-			 lim_populate_vht_caps(peer_node->VHTCaps);
+			 lim_populate_vht_caps(&peer_node->VHTCaps);
 	}
 #ifdef FEATURE_WLAN_TDLS
 	if (STA_ENTRY_TDLS_PEER == sta_ds->staType) {
@@ -3768,23 +3772,34 @@ tSirRetStatus lim_sta_send_add_bss(tpAniSirGlobal pMac, tpSirAssocRsp pAssocRsp,
 				sta_context->enable_su_tx_bformer = 1;
 		}
 
-		chanWidthSupp = lim_get_ht_capability(pMac,
-					eHT_SUPPORTED_CHANNEL_WIDTH_SET,
-					psessionEntry);
-
-		/*
-		 * in limExtractApCapability function intersection of FW
-		 * advertised channel width and AP advertised channel
-		 * width has been taken into account for calculating
-		 * psessionEntry->ch_width
-		 */
-		if (chanWidthSupp &&
-		    ((pAssocRsp->HTCaps.supportedChannelWidthSet) ||
-		    (pBeaconStruct->HTCaps.supportedChannelWidthSet))) {
+		if ((pAssocRsp->HTCaps.supportedChannelWidthSet) &&
+				(chanWidthSupp)) {
+			pAddBssParams->staContext.ch_width = (uint8_t)
+				pAssocRsp->HTInfo.recommendedTxWidthSet;
+			if (pAssocRsp->VHTCaps.present)
+				vht_oper = &pAssocRsp->VHTOperation;
+			else if (pAssocRsp->vendor_vht_ie.VHTCaps.present) {
+				vht_oper = &pAssocRsp->
+						vendor_vht_ie.VHTOperation;
+				pe_debug("VHT Op IE is in vendor Specfic IE");
+			}
+			/*
+			 * in limExtractApCapability function intersection of FW
+			 * advertised channel width and AP advertised channel
+			 * width has been taken into account for calculating
+			 * psessionEntry->ch_width
+			 */
 			pAddBssParams->staContext.ch_width =
 					psessionEntry->ch_width;
+
+			pe_debug("StaCtx: vhtCap %d ChBW %d TxBF %d",
+					pAddBssParams->staContext.vhtCapable,
+					pAddBssParams->staContext.ch_width,
+					sta_context->vhtTxBFCapable);
+			pe_debug("StaContext su_tx_bfer %d",
+					sta_context->enable_su_tx_bformer);
 		} else {
-			sta_context->ch_width = CH_WIDTH_20MHZ;
+			sta_context->ch_width =	CH_WIDTH_20MHZ;
 			if ((IS_SIR_STATUS_SUCCESS(
 				wlan_cfg_get_int(pMac,
 					WNI_CFG_VHT_ENABLE_TXBF_20MHZ,
@@ -3792,14 +3807,6 @@ tSirRetStatus lim_sta_send_add_bss(tpAniSirGlobal pMac, tpSirAssocRsp pAssocRsp,
 					(false == enableTxBF20MHz))
 				sta_context->vhtTxBFCapable = 0;
 		}
-
-		pe_debug("StaCtx: vhtCap %d ChBW %d TxBF %d",
-				pAddBssParams->staContext.vhtCapable,
-				pAddBssParams->staContext.ch_width,
-				sta_context->vhtTxBFCapable);
-		pe_debug("StaContext su_tx_bfer %d",
-				sta_context->enable_su_tx_bformer);
-
 		pAddBssParams->staContext.mimoPS =
 			(tSirMacHTMIMOPowerSaveState)
 			pAssocRsp->HTCaps.mimoPowerSave;

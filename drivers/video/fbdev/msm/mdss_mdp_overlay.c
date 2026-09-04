@@ -1851,9 +1851,9 @@ static bool __is_roi_valid(struct mdss_mdp_pipe *pipe,
 		mdss_mdp_intersect_rect(&res, &dst, &roi);
 
 		if (!mdss_rect_cmp(&res, &dst)) {
-			pr_err("error. pipe%d has scaling and its output is interesecting with roi.\n",
+			pr_debug("error. pipe%d has scaling and its output is interesecting with roi.\n",
 				pipe->num);
-			pr_err("pipe_dst:-> %d %d %d %d roi:-> %d %d %d %d\n",
+			pr_debug("pipe_dst:-> %d %d %d %d roi:-> %d %d %d %d\n",
 				dst.x, dst.y, dst.w, dst.h,
 				roi.x, roi.y, roi.w, roi.h);
 			ret = false;
@@ -2274,7 +2274,7 @@ static void __validate_and_set_roi(struct msm_fb_data_type *mfd,
 
 		if (!__is_roi_valid(pipe, &l_roi, &r_roi)) {
 			skip_partial_update = true;
-			pr_err("error. invalid pu config for pipe:%d dst:{%d,%d,%d,%d} dual_pu_roi:%d\n",
+			pr_debug("error. invalid pu config for pipe:%d dst:{%d,%d,%d,%d} dual_pu_roi:%d\n",
 				pipe->num, pipe->dst.x, pipe->dst.y,
 				pipe->dst.w, pipe->dst.h,
 				dual_roi->enabled);
@@ -5939,7 +5939,7 @@ ctl_stop:
 		 * retire_signal api checks for retire_cnt with sync_mutex lock.
 		 */
 
-		flush_kthread_work(&mdp5_data->vsync_work);
+		kthread_flush_work(&mdp5_data->vsync_work);
 	}
 
 	mutex_lock(&mdp5_data->ov_lock);
@@ -6142,7 +6142,7 @@ static void __vsync_retire_handle_vsync(struct mdss_mdp_ctl *ctl, ktime_t t)
 	}
 
 	mdp5_data = mfd_to_mdp5_data(mfd);
-	queue_kthread_work(&mdp5_data->worker, &mdp5_data->vsync_work);
+	kthread_queue_work(&mdp5_data->worker, &mdp5_data->vsync_work);
 }
 
 static void __vsync_retire_work_handler(struct kthread_work *work)
@@ -6274,8 +6274,8 @@ static int __vsync_retire_setup(struct msm_fb_data_type *mfd)
 		return -ENOMEM;
 	}
 
-	init_kthread_worker(&mdp5_data->worker);
-	init_kthread_work(&mdp5_data->vsync_work, __vsync_retire_work_handler);
+	kthread_init_worker(&mdp5_data->worker);
+	kthread_init_work(&mdp5_data->vsync_work, __vsync_retire_work_handler);
 
 	mdp5_data->thread = kthread_run(kthread_worker_fn,
 					&mdp5_data->worker, "vsync_retire_work");

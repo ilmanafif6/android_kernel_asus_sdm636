@@ -1656,18 +1656,12 @@ static inline void add_partial(struct kmem_cache_node *n,
 	__add_partial(n, page, tail);
 }
 
-static inline void
-__remove_partial(struct kmem_cache_node *n, struct page *page)
-{
-	list_del(&page->lru);
-	n->nr_partial--;
-}
-
 static inline void remove_partial(struct kmem_cache_node *n,
 					struct page *page)
 {
 	lockdep_assert_held(&n->list_lock);
-	__remove_partial(n, page);
+	list_del(&page->lru);
+	n->nr_partial--;
 }
 
 /*
@@ -1843,6 +1837,8 @@ static void *get_partial(struct kmem_cache *s, gfp_t flags, int node,
 
 	if (node == NUMA_NO_NODE)
 		searchnode = numa_mem_id();
+	else if (!node_present_pages(node))
+		searchnode = node_to_mem_node(node);
 
 	object = get_partial_node(s, get_node(s, searchnode), c, flags);
 	if (object || node != NUMA_NO_NODE)
@@ -2419,27 +2415,17 @@ static void *___slab_alloc(struct kmem_cache *s, gfp_t gfpflags, int node,
 	struct page *page;
 
 	page = c->page;
-	if (!page) {
-		/*
-		 * if the node is not online or has no normal memory, just
-		 * ignore the node constraint
-		 */
-		if (unlikely(node != NUMA_NO_NODE &&
-			     !node_state(node, N_NORMAL_MEMORY)))
-			node = NUMA_NO_NODE;
+	if (!page)
 		goto new_slab;
-	}
 redo:
 
 	if (unlikely(!node_match(page, node))) {
-		/*
-		 * same as above but node_match() being false already
-		 * implies node != NUMA_NO_NODE
-		 */
-		if (!node_state(node, N_NORMAL_MEMORY)) {
-			node = NUMA_NO_NODE;
-			goto redo;
-		} else {
+		int searchnode = node;
+
+		if (node != NUMA_NO_NODE && !node_present_pages(node))
+			searchnode = node_to_mem_node(node);
+
+		if (unlikely(!node_match(page, searchnode))) {
 			stat(s, ALLOC_NODE_MISMATCH);
 			deactivate_slab(s, page, c->freelist);
 			c->page = NULL;
@@ -2859,13 +2845,11 @@ redo:
 	barrier();
 
 	if (likely(page == c->page)) {
-		void **freelist = READ_ONCE(c->freelist);
-
-		set_freepointer(s, tail_obj, freelist);
+		set_freepointer(s, tail_obj, c->freelist);
 
 		if (unlikely(!this_cpu_cmpxchg_double(
 				s->cpu_slab->freelist, s->cpu_slab->tid,
-				freelist, tid,
+				c->freelist, tid,
 				head, next_tid(tid)))) {
 
 			note_cmpxchg_failure("slab_free", s, tid);
@@ -3025,15 +3009,6 @@ int kmem_cache_alloc_bulk(struct kmem_cache *s, gfp_t flags, size_t size,
 		void *object = c->freelist;
 
 		if (unlikely(!object)) {
-			/*
-			 * We may have removed an object from c->freelist using
-			 * the fastpath in the previous iteration; in that case,
-			 * c->tid has not been bumped yet.
-			 * Since ___slab_alloc() may reenable interrupts while
-			 * allocating memory, we should bump c->tid now.
-			 */
-			c->tid = next_tid(c->tid);
-
 			/*
 			 * Invoking slow path likely have side-effect
 			 * of re-populating per CPU c->freelist
@@ -3284,6 +3259,12 @@ static void free_kmem_cache_nodes(struct kmem_cache *s)
 		kmem_cache_free(kmem_cache_node, n);
 		s->node[node] = NULL;
 	}
+}
+
+void __kmem_cache_release(struct kmem_cache *s)
+{
+	free_percpu(s->cpu_slab);
+	free_kmem_cache_nodes(s);
 }
 
 static int init_kmem_cache_nodes(struct kmem_cache *s)
@@ -3552,28 +3533,31 @@ static void list_slab_objects(struct kmem_cache *s, struct page *page,
 
 /*
  * Attempt to free all partial slabs on a node.
- * This is called from kmem_cache_close(). We must be the last thread
- * using the cache and therefore we do not need to lock anymore.
+ * This is called from __kmem_cache_shutdown(). We must take list_lock
+ * because sysfs file might still access partial list after the shutdowning.
  */
 static void free_partial(struct kmem_cache *s, struct kmem_cache_node *n)
 {
 	struct page *page, *h;
 
+	BUG_ON(irqs_disabled());
+	spin_lock_irq(&n->list_lock);
 	list_for_each_entry_safe(page, h, &n->partial, lru) {
 		if (!page->inuse) {
-			__remove_partial(n, page);
+			remove_partial(n, page);
 			discard_slab(s, page);
 		} else {
 			list_slab_objects(s, page,
-			"Objects remaining in %s on kmem_cache_close()");
+			"Objects remaining in %s on __kmem_cache_shutdown()");
 		}
 	}
+	spin_unlock_irq(&n->list_lock);
 }
 
 /*
  * Release all resources used by a slab cache.
  */
-static inline int kmem_cache_close(struct kmem_cache *s)
+int __kmem_cache_shutdown(struct kmem_cache *s)
 {
 	int node;
 	struct kmem_cache_node *n;
@@ -3585,14 +3569,7 @@ static inline int kmem_cache_close(struct kmem_cache *s)
 		if (n->nr_partial || slabs_node(s, node))
 			return 1;
 	}
-	free_percpu(s->cpu_slab);
-	free_kmem_cache_nodes(s);
 	return 0;
-}
-
-int __kmem_cache_shutdown(struct kmem_cache *s)
-{
-	return kmem_cache_close(s);
 }
 
 /********************************************************************
@@ -3820,7 +3797,7 @@ int __kmem_cache_shrink(struct kmem_cache *s, bool deactivate)
 		 * s->cpu_partial is checked locklessly (see put_cpu_partial),
 		 * so we have to make sure the change is visible.
 		 */
-		kick_all_cpus_sync();
+		synchronize_sched();
 	}
 
 	flush_all(s);
@@ -4130,7 +4107,7 @@ int __kmem_cache_create(struct kmem_cache *s, unsigned long flags)
 	memcg_propagate_slab_attrs(s);
 	err = sysfs_slab_add(s);
 	if (err)
-		kmem_cache_close(s);
+		__kmem_cache_release(s);
 
 	return err;
 }
@@ -4192,7 +4169,6 @@ void *__kmalloc_track_caller(size_t size, gfp_t gfpflags, unsigned long caller)
 
 	return ret;
 }
-EXPORT_SYMBOL(__kmalloc_track_caller);
 
 #ifdef CONFIG_NUMA
 void *__kmalloc_node_track_caller(size_t size, gfp_t gfpflags,
@@ -4223,7 +4199,6 @@ void *__kmalloc_node_track_caller(size_t size, gfp_t gfpflags,
 
 	return ret;
 }
-EXPORT_SYMBOL(__kmalloc_node_track_caller);
 #endif
 
 #ifdef CONFIG_SYSFS
@@ -5440,8 +5415,7 @@ static void memcg_propagate_slab_attrs(struct kmem_cache *s)
 		 */
 		if (buffer)
 			buf = buffer;
-		else if (root_cache->max_attr_size < ARRAY_SIZE(mbuf) &&
-			 !IS_ENABLED(CONFIG_SLUB_STATS))
+		else if (root_cache->max_attr_size < ARRAY_SIZE(mbuf))
 			buf = mbuf;
 		else {
 			buffer = (char *) get_zeroed_page(GFP_KERNEL);

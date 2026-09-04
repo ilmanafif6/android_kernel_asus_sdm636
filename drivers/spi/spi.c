@@ -418,12 +418,6 @@ static LIST_HEAD(spi_master_list);
  */
 static DEFINE_MUTEX(board_lock);
 
-/*
- * Prevents addition of devices with same chip select and
- * addition of devices below an unregistering controller.
- */
-static DEFINE_MUTEX(spi_add_lock);
-
 /**
  * spi_alloc_device - Allocate a new SPI device
  * @master: Controller to which device is connected
@@ -502,6 +496,7 @@ static int spi_dev_check(struct device *dev, void *data)
  */
 int spi_add_device(struct spi_device *spi)
 {
+	static DEFINE_MUTEX(spi_add_lock);
 	struct spi_master *master = spi->master;
 	struct device *dev = master->dev.parent;
 	int status;
@@ -527,13 +522,6 @@ int spi_add_device(struct spi_device *spi)
 	if (status) {
 		dev_err(dev, "chipselect %d already in use\n",
 				spi->chip_select);
-		goto done;
-	}
-
-	/* Controller may unregister concurrently */
-	if (IS_ENABLED(CONFIG_SPI_DYNAMIC) &&
-	    !device_is_registered(&master->dev)) {
-		status = -ENODEV;
 		goto done;
 	}
 
@@ -951,7 +939,7 @@ static int spi_transfer_one_message(struct spi_master *master,
 	SPI_STATISTICS_INCREMENT_FIELD(stats, messages);
 
 	list_for_each_entry(xfer, &msg->transfers, transfer_list) {
-		//trace_spi_transfer_start(msg, xfer);
+		trace_spi_transfer_start(msg, xfer);
 
 		spi_statistics_add_transfer_stats(statm, xfer, master);
 		spi_statistics_add_transfer_stats(stats, xfer, master);
@@ -995,7 +983,7 @@ static int spi_transfer_one_message(struct spi_master *master,
 					xfer->len);
 		}
 
-		//trace_spi_transfer_stop(msg, xfer);
+		trace_spi_transfer_stop(msg, xfer);
 
 		if (msg->status != -EINPROGRESS)
 			goto out;
@@ -1076,7 +1064,7 @@ static void __spi_pump_messages(struct spi_master *master, bool in_kthread)
 
 	/* If another context is idling the device then defer */
 	if (master->idling) {
-		queue_kthread_work(&master->kworker, &master->pump_messages);
+		kthread_queue_work(&master->kworker, &master->pump_messages);
 		spin_unlock_irqrestore(&master->queue_lock, flags);
 		return;
 	}
@@ -1090,7 +1078,7 @@ static void __spi_pump_messages(struct spi_master *master, bool in_kthread)
 
 		/* Only do teardown in the thread */
 		if (!in_kthread) {
-			queue_kthread_work(&master->kworker,
+			kthread_queue_work(&master->kworker,
 					   &master->pump_messages);
 			spin_unlock_irqrestore(&master->queue_lock, flags);
 			return;
@@ -1112,7 +1100,7 @@ static void __spi_pump_messages(struct spi_master *master, bool in_kthread)
 			pm_runtime_mark_last_busy(master->dev.parent);
 			pm_runtime_put_autosuspend(master->dev.parent);
 		}
-		//trace_spi_master_idle(master);
+		trace_spi_master_idle(master);
 
 		spin_lock_irqsave(&master->queue_lock, flags);
 		master->idling = false;
@@ -1141,7 +1129,7 @@ static void __spi_pump_messages(struct spi_master *master, bool in_kthread)
 	}
 
 	if (!was_busy)
-		//trace_spi_master_busy(master);
+		trace_spi_master_busy(master);
 
 	if (!was_busy && master->prepare_transfer_hardware) {
 		ret = master->prepare_transfer_hardware(master);
@@ -1155,7 +1143,7 @@ static void __spi_pump_messages(struct spi_master *master, bool in_kthread)
 		}
 	}
 
-	//trace_spi_message_start(master->cur_msg);
+	trace_spi_message_start(master->cur_msg);
 
 	if (master->prepare_message) {
 		ret = master->prepare_message(master, master->cur_msg);
@@ -1203,7 +1191,7 @@ static int spi_init_queue(struct spi_master *master)
 	master->running = false;
 	master->busy = false;
 
-	init_kthread_worker(&master->kworker);
+	kthread_init_worker(&master->kworker);
 	master->kworker_task = kthread_run(kthread_worker_fn,
 					   &master->kworker, "%s",
 					   dev_name(&master->dev));
@@ -1211,7 +1199,7 @@ static int spi_init_queue(struct spi_master *master)
 		dev_err(&master->dev, "failed to create message pump task\n");
 		return PTR_ERR(master->kworker_task);
 	}
-	init_kthread_work(&master->pump_messages, spi_pump_messages);
+	kthread_init_work(&master->pump_messages, spi_pump_messages);
 
 	/*
 	 * Master config will indicate if this controller should run the
@@ -1284,10 +1272,10 @@ void spi_finalize_current_message(struct spi_master *master)
 	spin_lock_irqsave(&master->queue_lock, flags);
 	master->cur_msg = NULL;
 	master->cur_msg_prepared = false;
-	queue_kthread_work(&master->kworker, &master->pump_messages);
+	kthread_queue_work(&master->kworker, &master->pump_messages);
 	spin_unlock_irqrestore(&master->queue_lock, flags);
 
-	//trace_spi_message_done(mesg);
+	trace_spi_message_done(mesg);
 
 	mesg->state = NULL;
 	if (mesg->complete)
@@ -1310,7 +1298,7 @@ static int spi_start_queue(struct spi_master *master)
 	master->cur_msg = NULL;
 	spin_unlock_irqrestore(&master->queue_lock, flags);
 
-	queue_kthread_work(&master->kworker, &master->pump_messages);
+	kthread_queue_work(&master->kworker, &master->pump_messages);
 
 	return 0;
 }
@@ -1357,7 +1345,7 @@ static int spi_destroy_queue(struct spi_master *master)
 	ret = spi_stop_queue(master);
 
 	/*
-	 * flush_kthread_worker will block until all work is done.
+	 * kthread_flush_worker will block until all work is done.
 	 * If the reason that stop_queue timed out is that the work will never
 	 * finish, then it does no good to call flush/stop thread, so
 	 * return anyway.
@@ -1367,7 +1355,7 @@ static int spi_destroy_queue(struct spi_master *master)
 		return ret;
 	}
 
-	flush_kthread_worker(&master->kworker);
+	kthread_flush_worker(&master->kworker);
 	kthread_stop(master->kworker_task);
 
 	return 0;
@@ -1391,7 +1379,7 @@ static int __spi_queued_transfer(struct spi_device *spi,
 
 	list_add_tail(&msg->queue, &master->queue);
 	if (!master->busy && need_pump)
-		queue_kthread_work(&master->kworker, &master->pump_messages);
+		kthread_queue_work(&master->kworker, &master->pump_messages);
 
 	spin_unlock_irqrestore(&master->queue_lock, flags);
 	return 0;
@@ -1858,47 +1846,6 @@ struct spi_master *__spi_alloc_controller(struct device *dev,
 }
 EXPORT_SYMBOL_GPL(__spi_alloc_controller);
 
-static void devm_spi_release_master(struct device *dev, void *master)
-{
-	spi_master_put(*(struct spi_master **)master);
-}
-
-/**
- * devm_spi_alloc_master - resource-managed spi_alloc_master()
- * @dev: physical device of SPI master
- * @size: how much zeroed driver-private data to allocate
- * Context: can sleep
- *
- * Allocate an SPI master and automatically release a reference on it
- * when @dev is unbound from its driver.  Drivers are thus relieved from
- * having to call spi_master_put().
- *
- * The arguments to this function are identical to spi_alloc_master().
- *
- * Return: the SPI master structure on success, else NULL.
- */
-struct spi_master *devm_spi_alloc_master(struct device *dev, unsigned int size)
-{
-	struct spi_master **ptr, *master;
-
-	ptr = devres_alloc(devm_spi_release_master, sizeof(*ptr),
-			   GFP_KERNEL);
-	if (!ptr)
-		return NULL;
-
-	master = spi_alloc_master(dev, size);
-	if (master) {
-		master->devm_allocated = true;
-		*ptr = master;
-		devres_add(dev, ptr);
-	} else {
-		devres_free(ptr);
-	}
-
-	return master;
-}
-EXPORT_SYMBOL_GPL(devm_spi_alloc_master);
-
 #ifdef CONFIG_OF
 static int of_spi_register_master(struct spi_master *master)
 {
@@ -2099,11 +2046,7 @@ static int __unregister(struct device *dev, void *null)
  */
 void spi_unregister_master(struct spi_master *master)
 {
-	/* Prevent addition of new devices, unregister existing ones */
-	if (IS_ENABLED(CONFIG_SPI_DYNAMIC))
-		mutex_lock(&spi_add_lock);
-
-	device_for_each_child(&master->dev, NULL, __unregister);
+	int dummy;
 
 	if (master->queued) {
 		if (spi_destroy_queue(master))
@@ -2114,16 +2057,8 @@ void spi_unregister_master(struct spi_master *master)
 	list_del(&master->list);
 	mutex_unlock(&board_lock);
 
-	device_del(&master->dev);
-
-	/* Release the last reference on the master if its driver
-	 * has not yet been converted to devm_spi_alloc_master().
-	 */
-	if (!master->devm_allocated)
-		put_device(&master->dev);
-
-	if (IS_ENABLED(CONFIG_SPI_DYNAMIC))
-		mutex_unlock(&spi_add_lock);
+	dummy = device_for_each_child(&master->dev, NULL, __unregister);
+	device_unregister(&master->dev);
 }
 EXPORT_SYMBOL_GPL(spi_unregister_master);
 
@@ -2419,7 +2354,7 @@ static int __spi_async(struct spi_device *spi, struct spi_message *message)
 	SPI_STATISTICS_INCREMENT_FIELD(&master->statistics, spi_async);
 	SPI_STATISTICS_INCREMENT_FIELD(&spi->statistics, spi_async);
 
-	//trace_spi_message_submit(message);
+	trace_spi_message_submit(message);
 
 	return master->transfer(spi, message);
 }
@@ -2573,7 +2508,7 @@ static int __spi_sync(struct spi_device *spi, struct spi_message *message,
 	if (master->transfer == spi_queued_transfer) {
 		spin_lock_irqsave(&master->bus_lock_spinlock, flags);
 
-		//trace_spi_message_submit(message);
+		trace_spi_message_submit(message);
 
 		status = __spi_queued_transfer(spi, message, false);
 

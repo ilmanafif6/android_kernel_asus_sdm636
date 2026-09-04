@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -3618,13 +3618,6 @@ struct reg_table_entry g_registry_table[] = {
 		     CFG_ENABLE_NON_DFS_CHAN_ON_RADAR_MIN,
 		     CFG_ENABLE_NON_DFS_CHAN_ON_RADAR_MAX),
 
-	REG_VARIABLE(CFG_ENABLE_RTT_SUPPORT, WLAN_PARAM_Integer,
-		     struct hdd_config, enable_rtt_support,
-		     VAR_FLAGS_OPTIONAL,
-		     CFG_ENABLE_RTT_SUPPORT_DEFAULT,
-		     CFG_ENABLE_RTT_SUPPORT_MIN,
-		     CFG_ENABLE_RTT_SUPPORT_MAX ),
-
 	REG_VARIABLE(CFG_P2P_LISTEN_DEFER_INTERVAL_NAME, WLAN_PARAM_Integer,
 		     struct hdd_config, p2p_listen_defer_interval,
 		     VAR_FLAGS_OPTIONAL |
@@ -4090,13 +4083,6 @@ struct reg_table_entry g_registry_table[] = {
 		CFG_ROAM_SCAN_TRIGGER_REASON_BITMASK_MIN,
 		CFG_ROAM_SCAN_TRIGGER_REASON_BITMASK_MAX),
 
-	REG_VARIABLE(CFG_ROAM_SCAN_SCAN_POLICY_NAME, WLAN_PARAM_Integer,
-		     struct hdd_config, roaming_scan_policy,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_ROAM_SCAN_SCAN_POLICY_DEFAULT,
-		     CFG_ROAM_SCAN_SCAN_POLICY_MIN,
-		     CFG_ROAM_SCAN_SCAN_POLICY_MAX),
-
 	REG_VARIABLE(CFG_ENABLE_FATAL_EVENT_TRIGGER, WLAN_PARAM_Integer,
 			struct hdd_config, enable_fatal_event,
 			VAR_FLAGS_OPTIONAL |
@@ -4299,13 +4285,6 @@ struct reg_table_entry g_registry_table[] = {
 		CFG_ADAPTIVE_EXTSCAN_DWELL_MODE_DEFAULT,
 		CFG_ADAPTIVE_EXTSCAN_DWELL_MODE_MIN,
 		CFG_ADAPTIVE_EXTSCAN_DWELL_MODE_MAX),
-
-	REG_VARIABLE(CFG_HONOUR_NL_SCAN_POLICY_FLAGS_NAME, WLAN_PARAM_Integer,
-		     struct hdd_config, honour_nl_scan_policy_flags,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_HONOUR_NL_SCAN_POLICY_FLAGS_DEFAULT,
-		     CFG_HONOUR_NL_SCAN_POLICY_FLAGS_MIN,
-		     CFG_HONOUR_NL_SCAN_POLICY_FLAGS_MAX),
 
 	REG_VARIABLE(CFG_ADAPTIVE_DWELL_MODE_ENABLED_NAME, WLAN_PARAM_Integer,
 		struct hdd_config, adaptive_dwell_mode_enabled,
@@ -5094,12 +5073,6 @@ struct reg_table_entry g_registry_table[] = {
 		VAR_FLAGS_OPTIONAL,
 		(void *)CFG_ACTION_OUI_CONNECT_1X1_WITH_1_CHAIN_DEFAULT),
 
-	REG_VARIABLE_STRING(CFG_ACTION_OUI_DISABLE_AGGRESSIVE_EDCA,
-		WLAN_PARAM_String,
-		struct hdd_config, action_oui_disable_aggressive_edca,
-		VAR_FLAGS_OPTIONAL,
-		(void *)CFG_ACTION_OUI_DISABLE_AGGRESSIVE_EDCA_DEFAULT),
-
 	REG_VARIABLE(CFG_DTIM_1CHRX_ENABLE_NAME, WLAN_PARAM_Integer,
 		struct hdd_config, enable_dtim_1chrx,
 		VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
@@ -5481,13 +5454,6 @@ struct reg_table_entry g_registry_table[] = {
 		     CFG_RX_CHAIN_MASK_5G_MIN,
 		     CFG_RX_CHAIN_MASK_5G_MAX),
 
-	REG_VARIABLE(CFG_BTM_ENABLE_NAME, WLAN_PARAM_HexInteger,
-		     struct hdd_config, btm_offload_config,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_BTM_ENABLE_DEFAULT,
-		     CFG_BTM_ENABLE_MIN,
-		     CFG_BTM_ENABLE_MAX),
-
 	REG_VARIABLE(CFG_FORCE_RSNE_OVERRIDE_NAME, WLAN_PARAM_Integer,
 		     struct hdd_config, force_rsne_override,
 		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
@@ -5619,42 +5585,7 @@ struct reg_table_entry g_registry_table[] = {
 		CFG_IS_SAE_ENABLED_DEFAULT,
 		CFG_IS_SAE_ENABLED_MIN,
 		CFG_IS_SAE_ENABLED_MAX),
-	REG_VARIABLE(CFG_ENABLE_SAE_FOR_SAP_NAME, WLAN_PARAM_Integer,
-		     struct hdd_config, enable_sae_for_sap,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_ENABLE_SAE_FOR_SAP_DEFAULT,
-		     CFG_ENABLE_SAE_FOR_SAP_MIN,
-		     CFG_ENABLE_SAE_FOR_SAP_MAX),
 #endif
-
-	REG_VARIABLE(CFG_BTM_SOLICITED_TIMEOUT, WLAN_PARAM_Integer,
-		     struct hdd_config, btm_solicited_timeout,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_BTM_SOLICITED_TIMEOUT_DEFAULT,
-		     CFG_BTM_SOLICITED_TIMEOUT_MIN,
-		     CFG_BTM_SOLICITED_TIMEOUT_MAX),
-
-	REG_VARIABLE(CFG_BTM_MAX_ATTEMPT_CNT, WLAN_PARAM_Integer,
-		     struct hdd_config, btm_max_attempt_cnt,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_BTM_MAX_ATTEMPT_CNT_DEFAULT,
-		     CFG_BTM_MAX_ATTEMPT_CNT_MIN,
-		     CFG_BTM_MAX_ATTEMPT_CNT_MAX),
-
-	REG_VARIABLE(CFG_BTM_STICKY_TIME, WLAN_PARAM_Integer,
-		     struct hdd_config, btm_sticky_time,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_BTM_STICKY_TIME_DEFAULT,
-		     CFG_BTM_STICKY_TIME_MIN,
-		     CFG_BTM_STICKY_TIME_MAX),
-
-	REG_VARIABLE(CFG_BTM_QUERY_BITMASK_NAME,
-		     WLAN_PARAM_HexInteger, struct hdd_config,
-		     btm_query_bitmask,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_BTM_QUERY_BITMASK_DEFAULT,
-		     CFG_BTM_QUERY_BITMASK_MIN,
-		     CFG_BTM_QUERY_BITMASK_MAX),
 
 	REG_VARIABLE(CFG_ENABLE_RTT_MAC_RANDOMIZATION_NAME,
 		     WLAN_PARAM_Integer,
@@ -5678,91 +5609,6 @@ struct reg_table_entry g_registry_table[] = {
 		     CFG_ENABLE_DISABLE_CHANNEL_DEFAULT,
 		     CFG_ENABLE_DISABLE_CHANNEL_MIN,
 		     CFG_ENABLE_DISABLE_CHANNEL_MAX),
-
-	REG_VARIABLE(CFG_SET_BTC_MODE_NAME, WLAN_PARAM_Integer,
-		     struct hdd_config, set_btc_mode,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_SET_BTC_MODE_DEFAULT,
-		     CFG_SET_BTC_MODE_MIN,
-		     CFG_SET_BTC_MODE_MAX),
-
-	REG_VARIABLE(CFG_SET_ANTENNA_ISOLATION_NAME, WLAN_PARAM_Integer,
-		     struct hdd_config, set_antenna_isolation,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_SET_ANTENNA_ISOLATION_DEFAULT,
-		     CFG_SET_ANTENNA_ISOLATION_MIN,
-		     CFG_SET_ANTENNA_ISOLATION_MAX),
-
-	REG_VARIABLE(CFG_SET_MAX_TX_POWER_FOR_BTC_NAME, WLAN_PARAM_Integer,
-		     struct hdd_config, set_max_tx_power_for_btc,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_SET_MAX_TX_POWER_FOR_BTC_DEFAULT,
-		     CFG_SET_MAX_TX_POWER_FOR_BTC_MIN,
-		     CFG_SET_MAX_TX_POWER_FOR_BTC_MAX),
-
-	REG_VARIABLE(CFG_SET_WLAN_LOW_RSSI_THRESHOLD_NAME,
-		     WLAN_PARAM_SignedInteger,
-		     struct hdd_config, set_wlan_low_rssi_threshold,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_SET_WLAN_LOW_RSSI_THRESHOLD_DEFAULT,
-		     CFG_SET_WLAN_LOW_RSSI_THRESHOLD_MIN,
-		     CFG_SET_WLAN_LOW_RSSI_THRESHOLD_MAX),
-
-	REG_VARIABLE(CFG_SET_BT_LOW_RSSI_THRESHOLD_NAME,
-		     WLAN_PARAM_SignedInteger,
-		     struct hdd_config, set_bt_low_rssi_threshold,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_SET_BT_LOW_RSSI_THRESHOLD_DEFAULT,
-		     CFG_SET_BT_LOW_RSSI_THRESHOLD_MIN,
-		     CFG_SET_BT_LOW_RSSI_THRESHOLD_MAX),
-
-	REG_VARIABLE(CFG_SET_BT_INTERFERENCE_LOW_LL_NAME,
-		     WLAN_PARAM_SignedInteger,
-		     struct hdd_config, set_bt_interference_low_ll,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_SET_BT_INTERFERENCE_LOW_LL_DEFAULT,
-		     CFG_SET_BT_INTERFERENCE_LOW_LL_MIN,
-		     CFG_SET_BT_INTERFERENCE_LOW_LL_MAX),
-
-	REG_VARIABLE(CFG_SET_BT_INTERFERENCE_LOW_UL_NAME,
-		     WLAN_PARAM_SignedInteger,
-		     struct hdd_config, set_bt_interference_low_ul,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_SET_BT_INTERFERENCE_LOW_UL_DEFAULT,
-		     CFG_SET_BT_INTERFERENCE_LOW_UL_MIN,
-		     CFG_SET_BT_INTERFERENCE_LOW_UL_MAX),
-
-	REG_VARIABLE(CFG_SET_BT_INTERFERENCE_MEDIUM_LL_NAME,
-		     WLAN_PARAM_SignedInteger,
-		     struct hdd_config, set_bt_interference_medium_ll,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_SET_BT_INTERFERENCE_MEDIUM_LL_DEFAULT,
-		     CFG_SET_BT_INTERFERENCE_MEDIUM_LL_MIN,
-		     CFG_SET_BT_INTERFERENCE_MEDIUM_LL_MAX),
-
-	REG_VARIABLE(CFG_SET_BT_INTERFERENCE_MEDIUM_UL_NAME,
-		     WLAN_PARAM_SignedInteger,
-		     struct hdd_config, set_bt_interference_medium_ul,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_SET_BT_INTERFERENCE_MEDIUM_UL_DEFAULT,
-		     CFG_SET_BT_INTERFERENCE_MEDIUM_UL_MIN,
-		     CFG_SET_BT_INTERFERENCE_MEDIUM_UL_MAX),
-
-	REG_VARIABLE(CFG_SET_BT_INTERFERENCE_HIGH_LL_NAME,
-		     WLAN_PARAM_SignedInteger,
-		     struct hdd_config, set_bt_interference_high_ll,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_SET_BT_INTERFERENCE_HIGH_LL_DEFAULT,
-		     CFG_SET_BT_INTERFERENCE_HIGH_LL_MIN,
-		     CFG_SET_BT_INTERFERENCE_HIGH_LL_MAX),
-
-	REG_VARIABLE(CFG_SET_BT_INTERFERENCE_HIGH_UL_NAME,
-		     WLAN_PARAM_SignedInteger,
-		     struct hdd_config, set_bt_interference_high_ul,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_SET_BT_INTERFERENCE_HIGH_UL_DEFAULT,
-		     CFG_SET_BT_INTERFERENCE_HIGH_UL_MIN,
-		     CFG_SET_BT_INTERFERENCE_HIGH_UL_MAX),
 
 	REG_VARIABLE(CFG_ENABLE_SECONDARY_RATE_NAME,
 		     WLAN_PARAM_HexInteger,
@@ -5794,73 +5640,6 @@ struct reg_table_entry g_registry_table[] = {
 		     CFG_MWS_COEX_5G_NR_PWR_LIMIT_MIN,
 		     CFG_MWS_COEX_5G_NR_PWR_LIMIT_MAX),
 #endif
-	REG_VARIABLE(CFG_ROAM_PREAUTH_RETRY_COUNT_NAME,
-		     WLAN_PARAM_Integer,
-		     struct hdd_config, roam_preauth_retry_count,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_ROAM_PREAUTH_RETRY_COUNT_DEFAULT,
-		     CFG_ROAM_PREAUTH_RETRY_COUNT_MIN,
-		     CFG_ROAM_PREAUTH_RETRY_COUNT_MAX),
-
-	REG_VARIABLE(CFG_ROAM_PREAUTH_NO_ACK_TIMEOUT_NAME,
-		     WLAN_PARAM_Integer,
-		     struct hdd_config, roam_preauth_no_ack_timeout,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_ROAM_PREAUTH_NO_ACK_TIMEOUT_DEFAULT,
-		     CFG_ROAM_PREAUTH_NO_ACK_TIMEOUT_MIN,
-		     CFG_ROAM_PREAUTH_NO_ACK_TIMEOUT_MAX),
-
-	REG_VARIABLE(CFG_NTH_BEACON_REPORTING_OFFLOAD_NAME,
-		     WLAN_PARAM_Integer,
-		     struct hdd_config, beacon_reporting,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_NTH_BEACON_REPORTING_OFFLOAD_DEFAULT,
-		     CFG_NTH_BEACON_REPORTING_OFFLOAD_MIN,
-		     CFG_NTH_BEACON_REPORTING_OFFLOAD_MAX),
-
-	REG_VARIABLE(CFG_PKTCAP_MODE_ENABLE_NAME, WLAN_PARAM_Integer,
-		     struct hdd_config, pktcap_mode_enable,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_PKTCAP_MODE_ENABLE_DEFAULT,
-		     CFG_PKTCAP_MODE_ENABLE_MIN,
-		     CFG_PKTCAP_MODE_ENABLE_MAX),
-
-	REG_VARIABLE(CFG_PKTCAPTURE_MODE_NAME, WLAN_PARAM_Integer,
-		     struct hdd_config, pktcapture_mode,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_PKTCAPTURE_MODE_DEFAULT,
-		     CFG_PKTCAPTURE_MODE_MIN,
-		     CFG_PKTCAPTURE_MODE_MAX),
-
-#ifdef FW_THERMAL_THROTTLE_SUPPORT
-	REG_VARIABLE(CFG_THERMAL_SAMPLING_TIME_NAME, WLAN_PARAM_Integer,
-		     struct hdd_config, thermal_sampling_time,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_THERMAL_SAMPLING_TIME_DEFAULT,
-		     CFG_THERMAL_SAMPLING_TIME_MIN,
-		     CFG_THERMAL_SAMPLING_TIME_MAX),
-
-	REG_VARIABLE(CFG_THERMAL_THROT_DC_NAME, WLAN_PARAM_Integer,
-		     struct hdd_config, thermal_throt_dc,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_THERMAL_THROT_DC_DEFAULT,
-		     CFG_THERMAL_THROT_DC_MIN,
-		     CFG_THERMAL_THROT_DC_MAX),
-#endif
-
-	REG_VARIABLE(CFG_DISABLE_4WAY_HS_OFFLOAD, WLAN_PARAM_Integer,
-		     struct hdd_config, disable_4way_hs_offload,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_DISABLE_4WAY_HS_OFFLOAD_DEFAULT,
-		     CFG_DISABLE_4WAY_HS_OFFLOAD_MIN,
-		     CFG_DISABLE_4WAY_HS_OFFLOAD_MAX),
-
-	REG_VARIABLE(CFG_NB_COMMANDS_RATE_LIMIT, WLAN_PARAM_Integer,
-		     struct hdd_config, nb_commands_interval,
-		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		     CFG_NB_COMMANDS_RATE_LIMIT_DEFAULT,
-		     CFG_NB_COMMANDS_RATE_LIMIT_MIN,
-		     CFG_NB_COMMANDS_RATE_LIMIT_MAX),
 };
 
 /**
@@ -6122,13 +5901,12 @@ static int parse_hex_digit(char c)
  *
  * Return: None
  */
-static QDF_STATUS update_mac_from_string(hdd_context_t *pHddCtx,
-					 tCfgIniEntry *macTable, int num)
+static void update_mac_from_string(hdd_context_t *pHddCtx,
+				   tCfgIniEntry *macTable, int num)
 {
 	int i = 0, j = 0, res = 0;
 	char *candidate = NULL;
 	struct qdf_mac_addr macaddr[QDF_MAX_CONCURRENCY_PERSONA];
-	QDF_STATUS status = QDF_STATUS_SUCCESS;
 
 	memset(macaddr, 0, sizeof(macaddr));
 
@@ -6146,12 +5924,8 @@ static QDF_STATUS update_mac_from_string(hdd_context_t *pHddCtx,
 				     provisioned_mac_addr[i].bytes[0],
 				     (uint8_t *) &macaddr[i].bytes[0],
 				     QDF_MAC_ADDR_SIZE);
-		} else {
-			status = QDF_STATUS_E_FAILURE;
-			break;
 		}
 	}
-	return status;
 }
 
 /**
@@ -6802,19 +6576,8 @@ static void hdd_cfg_print_sae(hdd_context_t *hdd_ctx)
 		CFG_IS_SAE_ENABLED_NAME,
 		hdd_ctx->config->is_sae_enabled);
 }
-
-static void hdd_cfg_print_sae_sap(hdd_context_t *hdd_ctx)
-{
-	hdd_debug("Name = [%s] value = [%u]",
-		  CFG_ENABLE_SAE_FOR_SAP_NAME,
-		  hdd_ctx->config->enable_sae_for_sap);
-}
 #else
 static void hdd_cfg_print_sae(hdd_context_t *hdd_ctx)
-{
-}
-
-static void hdd_cfg_print_sae_sap(hdd_context_t *hdd_ctx)
 {
 }
 #endif
@@ -6854,105 +6617,36 @@ static void hdd_cfg_print_action_oui(hdd_context_t *hdd_ctx)
 	struct hdd_config *config = hdd_ctx->config;
 
 	hdd_debug("Name = [%s] value = [%u]",
-		  CFG_ENABLE_ACTION_OUI,
-		  config->enable_action_oui);
+		CFG_ENABLE_ACTION_OUI,
+		config->enable_action_oui);
 
 	hdd_debug("Name = [%s] value = [%s]",
-		  CFG_ACTION_OUI_CONNECT_1X1_NAME,
-		  config->action_oui_connect_1x1);
+		CFG_ACTION_OUI_CONNECT_1X1_NAME,
+		config->action_oui_connect_1x1);
 
 	hdd_debug("Name = [%s] value = [%s]",
-		  CFG_ACTION_OUI_ITO_EXTENSION_NAME,
-		  config->action_oui_ito_extension);
+		CFG_ACTION_OUI_ITO_EXTENSION_NAME,
+		config->action_oui_ito_extension);
 
 	hdd_debug("Name = [%s] value = [%s]",
-		  CFG_ACTION_OUI_CCKM_1X1_NAME,
-		  config->action_oui_cckm_1x1);
+		CFG_ACTION_OUI_CCKM_1X1_NAME,
+		config->action_oui_cckm_1x1);
 
 	hdd_debug("Name = [%s] value = [%s]",
-		  CFG_ACTION_OUI_ITO_ALTERNATE_NAME,
-		  config->action_oui_ito_alternate);
+		CFG_ACTION_OUI_ITO_ALTERNATE_NAME,
+		config->action_oui_ito_alternate);
 
 	hdd_debug("Name = [%s] value = [%s]",
-		  CFG_ACTION_OUI_SWITCH_TO_11N_MODE_NAME,
-		  config->action_oui_switch_to_11n);
+		CFG_ACTION_OUI_SWITCH_TO_11N_MODE_NAME,
+		config->action_oui_switch_to_11n);
 
 	hdd_debug("Name = [%s] value = [%s]",
-		  CFG_ACTION_OUI_CONNECT_1X1_WITH_1_CHAIN_NAME,
-		  config->action_oui_connect_1x1_with_1_chain);
-
-	hdd_debug("Name = [%s] value = [%s]",
-		  CFG_ACTION_OUI_DISABLE_AGGRESSIVE_EDCA,
-		  config->action_oui_disable_aggressive_edca);
+		CFG_ACTION_OUI_CONNECT_1X1_WITH_1_CHAIN_NAME,
+		config->action_oui_connect_1x1_with_1_chain);
 
 }
 #else
 #define hdd_cfg_print_action_oui(hdd_ctx) (0)
-#endif
-
-/**
- * hdd_cfg_print_btc_params() - print btc param values
- * @hdd_ctx: pointer to hdd context
- *
- * Return: None
- */
-static void hdd_cfg_print_btc_params(hdd_context_t *hdd_ctx)
-{
-	hdd_debug("Name = [%s] value = [%d]",
-		  CFG_SET_BTC_MODE_NAME,
-		  hdd_ctx->config->set_btc_mode);
-	hdd_debug("Name = [%s] value = [%d]",
-		  CFG_SET_ANTENNA_ISOLATION_NAME,
-		  hdd_ctx->config->set_antenna_isolation);
-	hdd_debug("Name = [%s] value = [%d]",
-		  CFG_SET_MAX_TX_POWER_FOR_BTC_NAME,
-		  hdd_ctx->config->set_max_tx_power_for_btc);
-	hdd_debug("Name = [%s] value = [%d]",
-		  CFG_SET_WLAN_LOW_RSSI_THRESHOLD_NAME,
-		  hdd_ctx->config->set_wlan_low_rssi_threshold);
-	hdd_debug("Name = [%s] value = [%d]",
-		  CFG_SET_BT_LOW_RSSI_THRESHOLD_NAME,
-		  hdd_ctx->config->set_bt_low_rssi_threshold);
-	hdd_debug("Name = [%s] value = [%d]",
-		  CFG_SET_BT_INTERFERENCE_LOW_LL_NAME,
-		  hdd_ctx->config->set_bt_interference_low_ll);
-	hdd_debug("Name = [%s] value = [%d]",
-		  CFG_SET_BT_INTERFERENCE_LOW_UL_NAME,
-		  hdd_ctx->config->set_bt_interference_low_ul);
-	hdd_debug("Name = [%s] value = [%d]",
-		  CFG_SET_BT_INTERFERENCE_MEDIUM_LL_NAME,
-		  hdd_ctx->config->set_bt_interference_medium_ll);
-	hdd_debug("Name = [%s] value = [%d]",
-		  CFG_SET_BT_INTERFERENCE_MEDIUM_UL_NAME,
-		  hdd_ctx->config->set_bt_interference_medium_ul);
-	hdd_debug("Name = [%s] value = [%d]",
-		  CFG_SET_BT_INTERFERENCE_HIGH_LL_NAME,
-		  hdd_ctx->config->set_bt_interference_high_ll);
-	hdd_debug("Name = [%s] value = [%d]",
-		  CFG_SET_BT_INTERFERENCE_HIGH_UL_NAME,
-		  hdd_ctx->config->set_bt_interference_high_ul);
-}
-
-#ifdef FW_THERMAL_THROTTLE_SUPPORT
-/**
- * hdd_cfg_print_thermal_config - Print thermal config inis
- * @hdd_ctx: HDD context structure
- *
- * Return: None
- */
-static inline void hdd_cfg_print_thermal_config(hdd_context_t *hdd_ctx)
-{
-	hdd_debug("Name = [%s] value = [%d]",
-		  CFG_THERMAL_SAMPLING_TIME_NAME,
-		  hdd_ctx->config->thermal_sampling_time);
-	hdd_debug("Name = [%s] value = [%d]",
-		  CFG_THERMAL_THROT_DC_NAME,
-		  hdd_ctx->config->thermal_throt_dc);
-}
-#else
-static inline void hdd_cfg_print_thermal_config(hdd_context_t *hdd_ctx)
-{
-}
 #endif
 
 /**
@@ -7551,9 +7245,6 @@ void hdd_cfg_print(hdd_context_t *pHddCtx)
 		CFG_ROAM_SCAN_TRIGGER_REASON_BITMASK_NAME,
 		pHddCtx->config->roam_trigger_reason_bitmask);
 	hdd_debug("Name = [%s] Value = [%u]",
-		  CFG_ROAM_SCAN_SCAN_POLICY_NAME,
-		  pHddCtx->config->roaming_scan_policy);
-	hdd_debug("Name = [%s] Value = [%u]",
 		CFG_MIN_REST_TIME_NAME,
 		pHddCtx->config->min_rest_time_conc);
 	hdd_debug("Name = [%s] Value = [%u]",
@@ -7639,9 +7330,6 @@ void hdd_cfg_print(hdd_context_t *pHddCtx)
 	hdd_debug("Name = [%s] Value = [%u]",
 		CFG_ADAPTIVE_EXTSCAN_DWELL_MODE_NAME,
 		pHddCtx->config->extscan_adaptive_dwell_mode);
-	hdd_debug("Name = [%s] Value = [%u]",
-		  CFG_HONOUR_NL_SCAN_POLICY_FLAGS_NAME,
-		  pHddCtx->config->honour_nl_scan_policy_flags);
 	hdd_debug("Name = [%s] Value = [%u]",
 		CFG_ADAPTIVE_DWELL_MODE_ENABLED_NAME,
 		pHddCtx->config->adaptive_dwell_mode_enabled);
@@ -7917,7 +7605,6 @@ void hdd_cfg_print(hdd_context_t *pHddCtx)
 		  CFG_CHANNEL_SELECT_LOGIC_CONC_NAME,
 		  pHddCtx->config->channel_select_logic_conc);
 	hdd_cfg_print_sae(pHddCtx);
-	hdd_cfg_print_sae_sap(pHddCtx);
 	hdd_debug("Name = [%s] value = [0x%x]",
 		  CFG_ENABLE_UNIT_TEST_FRAMEWORK_NAME,
 		  pHddCtx->config->is_unit_test_framework_enabled);
@@ -7928,34 +7615,8 @@ void hdd_cfg_print(hdd_context_t *pHddCtx)
 		  CFG_ROAM_FORCE_RSSI_TRIGGER_NAME,
 		  pHddCtx->config->roam_force_rssi_trigger);
 	hdd_cfg_print_mws_coex(pHddCtx);
-	hdd_debug("Name = [%s] Value = [%u]",
-		  CFG_ROAM_PREAUTH_RETRY_COUNT_NAME,
-		  pHddCtx->config->roam_preauth_retry_count);
-	hdd_debug("Name = [%s] Value = [%u]",
-		  CFG_ROAM_PREAUTH_NO_ACK_TIMEOUT_NAME,
-		  pHddCtx->config->roam_preauth_no_ack_timeout);
+
 	hdd_cfg_print_action_oui(pHddCtx);
-	hdd_cfg_print_btc_params(pHddCtx);
-	hdd_debug("Name = [btm_offload_config] value = [0x%x]",
-		  pHddCtx->config->btm_offload_config);
-	hdd_debug("Name = [btm_solicited_timeout] value = [0x%x]",
-		  pHddCtx->config->btm_solicited_timeout);
-	hdd_debug("Name = [btm_max_attempt_cnt] value = [0x%x]",
-		  pHddCtx->config->btm_max_attempt_cnt);
-	hdd_debug("Name = [btm_sticky_time] value = [0x%x]",
-		  pHddCtx->config->btm_sticky_time);
-	hdd_debug("Name = [btm_query_bitmask] value = [0x%x]",
-		  pHddCtx->config->btm_query_bitmask);
-	hdd_debug("Name = [%s] value = [%u]",
-		  CFG_NTH_BEACON_REPORTING_OFFLOAD_NAME,
-		  pHddCtx->config->beacon_reporting);
-	hdd_debug("Name = [%s] value = [%d]",
-		  CFG_PKTCAP_MODE_ENABLE_NAME, pHddCtx->config->pktcap_mode_enable);
-	hdd_debug("Name = [%s] value = [%d]",
-		  CFG_PKTCAPTURE_MODE_NAME, pHddCtx->config->pktcapture_mode);
-	hdd_cfg_print_thermal_config(pHddCtx);
-	hdd_debug("Name = [%s] value = [%d]",
-		  CFG_DISABLE_4WAY_HS_OFFLOAD, pHddCtx->config->disable_4way_hs_offload);
 }
 
 /**
@@ -7984,15 +7645,10 @@ QDF_STATUS hdd_update_mac_config(hdd_context_t *pHddCtx)
 	status = request_firmware(&fw, WLAN_MAC_FILE, pHddCtx->parent_dev);
 
 	if (status) {
-		/*
-		 * request_firmware "fails" if the file is not found, which is a
-		 * valid setup for us, so log using debug instead of error
-		 */
-		hdd_debug("request_firmware failed; status:%d", status);
+		hdd_alert("request_firmware failed %d", status);
 		qdf_status = QDF_STATUS_E_FAILURE;
 		return qdf_status;
 	}
-
 	if (!fw || !fw->data || !fw->size) {
 		hdd_alert("invalid firmware");
 		qdf_status = QDF_STATUS_E_INVAL;
@@ -8046,8 +7702,7 @@ QDF_STATUS hdd_update_mac_config(hdd_context_t *pHddCtx)
 		}
 		buffer = line;
 	}
-
-	if (i != 0 && i <= QDF_MAX_CONCURRENCY_PERSONA) {
+	if (i <= QDF_MAX_CONCURRENCY_PERSONA) {
 		hdd_debug("%d Mac addresses provided", i);
 	} else {
 		hdd_err("invalid number of Mac address provided, nMac = %d", i);
@@ -8055,11 +7710,7 @@ QDF_STATUS hdd_update_mac_config(hdd_context_t *pHddCtx)
 		goto config_exit;
 	}
 
-	qdf_status = update_mac_from_string(pHddCtx, &macTable[0], i);
-	if (QDF_IS_STATUS_ERROR(qdf_status)) {
-		hdd_err("Invalid MAC addresses provided");
-		goto config_exit;
-	}
+	update_mac_from_string(pHddCtx, &macTable[0], i);
 	pHddCtx->num_provisioned_addr = i;
 	hdd_debug("Populating remaining %d Mac addreses",
 		   max_mac_addr - i);
@@ -8167,22 +7818,6 @@ static void hdd_set_rx_mode_value(hdd_context_t *hdd_ctx)
 }
 
 /**
- * hdd_set_pktcapture_mode_value() - set pktcapture_mode values
- * @hdd_ctx: hdd context
- *
- * Return: none
- */
-static void hdd_set_pktcapture_mode_value(hdd_context_t *hdd_ctx)
-{
-	if (hdd_ctx->config->pktcapture_mode > CFG_PKTCAPTURE_MODE_MAX) {
-		hdd_warn("pktcapture_mode wrong configuration. Make it default");
-		hdd_ctx->config->pktcapture_mode = CFG_PKTCAPTURE_MODE_DEFAULT;
-	}
-
-	hdd_ctx->pktcapture_mode = hdd_ctx->config->pktcapture_mode;
-}
-
-/**
  * hdd_parse_config_ini() - parse the ini configuration file
  * @pHddCtx: the pointer to hdd context
  *
@@ -8286,7 +7921,6 @@ QDF_STATUS hdd_parse_config_ini(hdd_context_t *pHddCtx)
 	/* Loop through the registry table and apply all these configs */
 	qdf_status = hdd_apply_cfg_ini(pHddCtx, cfgIniTable, i);
 	hdd_set_rx_mode_value(pHddCtx);
-	hdd_set_pktcapture_mode_value(pHddCtx);
 	if (QDF_GLOBAL_MONITOR_MODE == cds_get_conparam())
 		hdd_override_all_ps(pHddCtx);
 
@@ -8594,14 +8228,15 @@ static bool hdd_update_vht_cap_in_cfg(hdd_context_t *hdd_ctx)
 	    (config->dot11Mode == eHDD_DOT11_MODE_11ac)) {
 		/* Currently shortGI40Mhz is used for shortGI80Mhz and 160MHz*/
 		if (sme_cfg_set_int(hdd_ctx->hHal, WNI_CFG_VHT_SHORT_GI_80MHZ,
-		    config->ShortGI80MhzEnable) == QDF_STATUS_E_FAILURE) {
+		    config->ShortGI40MhzEnable) == QDF_STATUS_E_FAILURE) {
 			status = false;
 			hdd_err("Couldn't pass WNI_VHT_SHORT_GI_80MHZ to CFG");
 		}
 
 		if (sme_cfg_set_int(hdd_ctx->hHal,
-		    WNI_CFG_VHT_SHORT_GI_160_AND_80_PLUS_80MHZ,
-		    config->ShortGI160MhzEnable) == QDF_STATUS_E_FAILURE) {
+				    WNI_CFG_VHT_SHORT_GI_160_AND_80_PLUS_80MHZ,
+				    config->ShortGI40MhzEnable) ==
+							QDF_STATUS_E_FAILURE) {
 			status = false;
 			hdd_err("Couldn't pass SHORT_GI_160MHZ to CFG");
 		}
@@ -8692,34 +8327,6 @@ static bool hdd_update_vht_cap_in_cfg(hdd_context_t *hdd_ctx)
 	return status;
 
 }
-
-#ifdef WLAN_FEATURE_SAE
-/**
- * hdd_update_sae_cfg() - API to update SAE setting to MAC/WNI layer
- * @hdd_ctx: pointer to hdd_ctx
- *
- * This API reads the SAE setting from HDD config structure and updates the
- * same to MAC/WNI layer.
- *
- * Return: true if operation is successful, false otherwise.
- */
-static inline bool hdd_update_sae_cfg(hdd_context_t *hdd_ctx)
-{
-	bool status = true;
-	if (sme_cfg_set_int(hdd_ctx->hHal, WNI_CFG_SAP_SAE_ENABLED,
-			    hdd_ctx->config->enable_sae_for_sap) ==
-			    QDF_STATUS_E_FAILURE) {
-		status = false;
-		hdd_err("Couldn't pass on WNI_CFG_SAP_SAE_ENABLED to CCM");
-	}
-	return status;
-}
-#else
-static inline bool hdd_update_sae_cfg(hdd_context_t *hdd_ctx)
-{
-	return true;
-}
-#endif
 
 /**
  * hdd_update_config_cfg() - API to update INI setting based on hw/fw caps
@@ -9192,7 +8799,6 @@ bool hdd_update_config_cfg(hdd_context_t *hdd_ctx)
 		hdd_err("Couldn't pass on WNI_CFG_RATE_FOR_TX_MGMT_5G to CCM");
 	}
 
-	status = hdd_update_sae_cfg(hdd_ctx);
 	return status;
 }
 #ifdef FEATURE_WLAN_SCAN_PNO
@@ -10027,10 +9633,6 @@ void hdd_set_all_sme_action_ouis(hdd_context_t *hdd_ctx)
 	hdd_set_sme_action_oui(hdd_ctx, ini_string,
 			       WMI_ACTION_OUI_CONNECT_1x1_WITH_1_CHAIN);
 
-	ini_string = config->action_oui_disable_aggressive_edca;
-	ini_string[MAX_ACTION_OUI_STRING_LEN - 1] = '\0';
-	hdd_set_sme_action_oui(hdd_ctx, ini_string,
-			       WMI_ACTION_OUI_DISABLE_AGGRESSIVE_EDCA);
 }
 
 /* End of action oui functions */
@@ -10558,16 +10160,10 @@ QDF_STATUS hdd_set_sme_config(hdd_context_t *pHddCtx)
 		pHddCtx->config->enable_ftopen;
 	smeConfig->csrConfig.ho_delay_for_rx =
 		pHddCtx->config->ho_delay_for_rx;
-	smeConfig->csrConfig.roam_preauth_no_ack_timeout =
-		pHddCtx->config->roam_preauth_no_ack_timeout;
-	smeConfig->csrConfig.roam_preauth_retry_count =
-		pHddCtx->config->roam_preauth_retry_count;
 	smeConfig->csrConfig.min_delay_btw_roam_scans =
 		pHddCtx->config->min_delay_btw_roam_scans;
 	smeConfig->csrConfig.roam_trigger_reason_bitmask =
 		pHddCtx->config->roam_trigger_reason_bitmask;
-	smeConfig->csrConfig.roaming_scan_policy =
-		pHddCtx->config->roaming_scan_policy;
 	smeConfig->csrConfig.obss_width_interval =
 			pHddCtx->config->obss_width_trigger_interval;
 	smeConfig->csrConfig.obss_active_dwelltime =
@@ -10582,8 +10178,6 @@ QDF_STATUS hdd_set_sme_config(hdd_context_t *pHddCtx)
 			pHddCtx->config->scan_adaptive_dwell_mode;
 	smeConfig->csrConfig.scan_adaptive_dwell_mode_nc =
 			pHddCtx->config->scan_adaptive_dwell_mode_nc;
-	smeConfig->csrConfig.honour_nl_scan_policy_flags =
-			pHddCtx->config->honour_nl_scan_policy_flags;
 	smeConfig->csrConfig.roamscan_adaptive_dwell_mode =
 			pHddCtx->config->roamscan_adaptive_dwell_mode;
 	smeConfig->csrConfig.roam_force_rssi_trigger =
@@ -10701,19 +10295,6 @@ QDF_STATUS hdd_set_sme_config(hdd_context_t *pHddCtx)
 		(pConfig->rssi_assoc_reject_enabled *
 		WMI_VDEV_OCE_REASSOC_REJECT_FEATURE_BITMAP);
 	smeConfig->csrConfig.oce_feature_bitmap = val;
-
-	smeConfig->csrConfig.btm_offload_config =
-			pHddCtx->config->btm_offload_config;
-	smeConfig->csrConfig.btm_solicited_timeout =
-			pHddCtx->config->btm_solicited_timeout;
-	smeConfig->csrConfig.btm_max_attempt_cnt =
-			pHddCtx->config->btm_max_attempt_cnt;
-	smeConfig->csrConfig.btm_sticky_time =
-			pHddCtx->config->btm_sticky_time;
-	smeConfig->csrConfig.btm_query_bitmask =
-			pHddCtx->config->btm_query_bitmask;
-	smeConfig->csrConfig.disable_4way_hs_offload =
-			pHddCtx->config->disable_4way_hs_offload;
 
 	hdd_update_bss_score_params(pHddCtx->config,
 			&smeConfig->csrConfig.bss_score_params);

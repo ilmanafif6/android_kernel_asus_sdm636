@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -70,7 +70,6 @@
 #include <wlan_logging_sock_svc.h>
 #include "cds_utils.h"
 #include "wlan_hdd_packet_filter_api.h"
-#include "cds_concurrency.h"
 
 /* Preprocessor definitions and constants */
 #define HDD_SSR_BRING_UP_TIME 30000
@@ -230,7 +229,7 @@ static int __wlan_hdd_ipv6_changed(struct notifier_block *nb,
 	ENTER_DEV(ndev);
 
 	if ((pAdapter == NULL) || (WLAN_HDD_ADAPTER_MAGIC != pAdapter->magic)) {
-		hdd_debug("Adapter context is invalid %pK", pAdapter);
+		hdd_err("Adapter context is invalid %pK", pAdapter);
 		return NOTIFY_DONE;
 	}
 
@@ -924,7 +923,7 @@ static int __wlan_hdd_ipv4_changed(struct notifier_block *nb,
 	ENTER_DEV(ndev);
 
 	if ((pAdapter == NULL) || (WLAN_HDD_ADAPTER_MAGIC != pAdapter->magic)) {
-		hdd_debug("Adapter context is invalid %pK", pAdapter);
+		hdd_err("Adapter context is invalid %pK", pAdapter);
 		return NOTIFY_DONE;
 	}
 
@@ -1310,6 +1309,7 @@ hdd_suspend_wlan(void (*callback)(void *callbackContext, bool suspended),
 		return;
 	}
 
+
 	status = hdd_get_front_adapter(pHddCtx, &pAdapterNode);
 	while (NULL != pAdapterNode && QDF_STATUS_SUCCESS == status) {
 		pAdapter = pAdapterNode->pAdapter;
@@ -1476,9 +1476,6 @@ QDF_STATUS hdd_wlan_shutdown(void)
 		return QDF_STATUS_E_FAILURE;
 	}
 
-	pHddCtx->is_ssr_in_progress = true;
-	cds_set_connection_in_progress(false);
-
 	cds_clear_concurrent_session_count();
 
 	hdd_debug("Invoking packetdump deregistration API");
@@ -1520,11 +1517,6 @@ QDF_STATUS hdd_wlan_shutdown(void)
 		pHddCtx->is_ol_rx_thread_suspended = false;
 	}
 #endif
-	if (cds_get_pktcap_mode_enable() &&
-	    pHddCtx->is_ol_mon_thread_suspended) {
-		complete(&cds_sched_context->ol_resume_mon_event);
-		pHddCtx->is_ol_mon_thread_suspended = false;
-	}
 
 	hdd_ipa_uc_ssr_deinit();
 
@@ -1673,8 +1665,10 @@ QDF_STATUS hdd_wlan_re_init(void)
 	/* Restart all adapters */
 	hdd_start_all_adapters(pHddCtx);
 
-	/* init the scan reject params */
-	hdd_init_scan_reject_params(pHddCtx);
+	pHddCtx->last_scan_reject_session_id = 0xFF;
+	pHddCtx->last_scan_reject_reason = 0;
+	pHddCtx->last_scan_reject_timestamp = 0;
+	pHddCtx->scan_reject_cnt = 0;
 
 	hdd_set_roaming_in_progress(false);
 	complete(&pAdapter->roaming_comp_var);
@@ -1700,9 +1694,6 @@ success:
 	if (pHddCtx->config->sap_internal_restart)
 		hdd_ssr_restart_sap(pHddCtx);
 	hdd_is_interface_down_during_ssr(pHddCtx);
-
-	pHddCtx->is_ssr_in_progress = false;
-
 	hdd_wlan_ssr_reinit_event();
 	return QDF_STATUS_SUCCESS;
 }
@@ -1712,7 +1703,6 @@ int wlan_hdd_set_powersave(hdd_adapter_t *adapter,
 {
 	tHalHandle hal;
 	hdd_context_t *hdd_ctx;
-	QDF_STATUS status = QDF_STATUS_SUCCESS;
 
 	if (NULL == adapter) {
 		hdd_err("Adapter NULL");
@@ -1744,11 +1734,9 @@ int wlan_hdd_set_powersave(hdd_adapter_t *adapter,
 		if (QDF_STA_MODE == adapter->device_mode ||
 		    QDF_P2P_CLIENT_MODE == adapter->device_mode) {
 			hdd_debug("Disabling Auto Power save timer");
-			status = sme_ps_disable_auto_ps_timer(
+			sme_ps_disable_auto_ps_timer(
 				WLAN_HDD_GET_HAL_CTX(adapter),
 				adapter->sessionId);
-			if (status != QDF_STATUS_SUCCESS)
-				goto end;
 		}
 
 		if (hdd_ctx->config && hdd_ctx->config->is_ps_enabled) {
@@ -1758,19 +1746,13 @@ int wlan_hdd_set_powersave(hdd_adapter_t *adapter,
 			 * Enter Power Save command received from GUI
 			 * this means DHCP is completed
 			 */
-			if (timeout) {
-				status = sme_ps_enable_auto_ps_timer(hal,
+			if (timeout)
+				sme_ps_enable_auto_ps_timer(hal,
 							    adapter->sessionId,
 							    timeout);
-				if (status != QDF_STATUS_SUCCESS)
-					goto end;
-			} else {
-				status = sme_ps_enable_disable(hal,
-						adapter->sessionId,
-						SME_PS_ENABLE);
-				if (status != QDF_STATUS_SUCCESS)
-					goto end;
-			}
+			else
+				sme_ps_enable_disable(hal, adapter->sessionId,
+						      SME_PS_ENABLE);
 		} else {
 			hdd_debug("Power Save is not enabled in the cfg");
 		}
@@ -1781,17 +1763,12 @@ int wlan_hdd_set_powersave(hdd_adapter_t *adapter,
 		 * Enter Full power command received from GUI
 		 * this means we are disconnected
 		 */
-		status = sme_ps_disable_auto_ps_timer(
-					WLAN_HDD_GET_HAL_CTX(adapter),
-					adapter->sessionId);
-		if (status != QDF_STATUS_SUCCESS)
-			goto end;
-		status = sme_ps_enable_disable(hal, adapter->sessionId,
-					       SME_PS_DISABLE);
+		sme_ps_disable_auto_ps_timer(WLAN_HDD_GET_HAL_CTX(adapter),
+			adapter->sessionId);
+		sme_ps_enable_disable(hal, adapter->sessionId, SME_PS_DISABLE);
 	}
 
-end:
-	return qdf_status_to_os_return(status);
+	return 0;
 }
 
 #ifdef WLAN_DEBUG
@@ -1819,13 +1796,13 @@ void wlan_hdd_inc_suspend_stats(hdd_context_t *hdd_ctx,
 }
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
-void
+static inline void
 hdd_sched_scan_results(struct wiphy *wiphy, uint64_t reqid)
 {
 	cfg80211_sched_scan_results(wiphy);
 }
 #else
-void
+static inline void
 hdd_sched_scan_results(struct wiphy *wiphy, uint64_t reqid)
 {
 	cfg80211_sched_scan_results(wiphy, reqid);
@@ -1893,13 +1870,6 @@ static int __wlan_hdd_cfg80211_resume_wlan(struct wiphy *wiphy)
 		pHddCtx->is_ol_rx_thread_suspended = false;
 	}
 #endif
-	/* Resume tlshim mon thread */
-	if (cds_get_pktcap_mode_enable() &&
-	    pHddCtx->is_ol_mon_thread_suspended) {
-		complete(&cds_sched_context->ol_resume_mon_event);
-		pHddCtx->is_ol_mon_thread_suspended = false;
-	}
-
 	hdd_resume_wlan();
 
 	MTRACE(qdf_trace(QDF_MODULE_ID_HDD,
@@ -2002,7 +1972,9 @@ int wlan_hdd_cfg80211_resume_wlan(struct wiphy *wiphy)
 static int __wlan_hdd_cfg80211_suspend_wlan(struct wiphy *wiphy,
 				     struct cfg80211_wowlan *wow)
 {
+#ifdef QCA_CONFIG_SMP
 #define RX_TLSHIM_SUSPEND_TIMEOUT 200   /* msecs */
+#endif
 	hdd_context_t *pHddCtx = wiphy_priv(wiphy);
 	p_cds_sched_context cds_sched_context = get_cds_sched_ctxt();
 	hdd_adapter_list_node_t *pAdapterNode = NULL, *pNext = NULL;
@@ -2036,11 +2008,6 @@ static int __wlan_hdd_cfg80211_suspend_wlan(struct wiphy *wiphy,
 		return 0;
 	}
 	mutex_unlock(&pHddCtx->iface_change_lock);
-
-	if (cds_is_connection_in_progress(NULL, NULL)) {
-		hdd_err("Suspend rejected: conn in progress");
-		return -EINVAL;
-	}
 
 	/* If RADAR detection is in progress (HDD), prevent suspend. The flag
 	 * "dfs_cac_block_tx" is set to true when RADAR is found and stay true
@@ -2117,11 +2084,8 @@ next_adapter:
 	while (pAdapterNode && QDF_IS_STATUS_SUCCESS(status)) {
 		pAdapter = pAdapterNode->pAdapter;
 
-		if (pAdapter->sessionId >= MAX_NUMBER_OF_ADAPTERS)
-			goto fetch_adapter;
-
 		sme_ps_timer_flush_sync(pHddCtx->hHal, pAdapter->sessionId);
-fetch_adapter:
+
 		status = hdd_get_next_adapter(pHddCtx, pAdapterNode,
 					      &pAdapterNode);
 	}
@@ -2182,28 +2146,10 @@ fetch_adapter:
 		clear_bit(RX_SUSPEND_EVENT,
 			  &cds_sched_context->ol_rx_event_flag);
 		hdd_err("Failed to stop tl_shim rx thread");
-		goto resume_mc;
+		goto resume_all;
 	}
 	pHddCtx->is_ol_rx_thread_suspended = true;
 #endif
-	/* Suspend tlshim mon thread */
-	if (cds_get_pktcap_mode_enable()) {
-		set_bit(RX_SUSPEND_EVENT,
-			&cds_sched_context->ol_mon_event_flag);
-		wake_up_interruptible(&cds_sched_context->ol_mon_wait_queue);
-		rc = wait_for_completion_timeout(&cds_sched_context->
-						 ol_suspend_mon_event,
-						 msecs_to_jiffies
-						 (RX_TLSHIM_SUSPEND_TIMEOUT));
-		if (!rc) {
-			clear_bit(RX_SUSPEND_EVENT,
-				  &cds_sched_context->ol_mon_event_flag);
-			hdd_err("Failed to stop tl_shim mon thread");
-			goto resume_all;
-		}
-		pHddCtx->is_ol_mon_thread_suspended = true;
-	}
-
 	MTRACE(qdf_trace(QDF_MODULE_ID_HDD,
 			 TRACE_CODE_HDD_CFG80211_SUSPEND_WLAN,
 			 NO_SESSION, pHddCtx->isWiphySuspended));
@@ -2214,14 +2160,12 @@ fetch_adapter:
 	EXIT();
 	return 0;
 
-resume_all:
 #ifdef QCA_CONFIG_SMP
-	complete(&cds_sched_context->ol_resume_rx_event);
-	pHddCtx->is_ol_rx_thread_suspended = false;
-resume_mc:
-#endif
+resume_all:
+
 	complete(&cds_sched_context->ResumeMcEvent);
 	pHddCtx->isMcThreadSuspended = false;
+#endif
 
 resume_tx:
 
@@ -2509,7 +2453,6 @@ static int __wlan_hdd_cfg80211_get_txpower(struct wiphy *wiphy,
 	hdd_adapter_t *adapter = WLAN_HDD_GET_PRIV_PTR(ndev);
 	int status;
 	hdd_station_ctx_t *sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
-	static bool is_rate_limited;
 
 	ENTER();
 
@@ -2526,23 +2469,14 @@ static int __wlan_hdd_cfg80211_get_txpower(struct wiphy *wiphy,
 
 	/* Validate adapter sessionId */
 	if (wlan_hdd_validate_session_id(adapter->sessionId)) {
-		hdd_debug("invalid session id: %d", adapter->sessionId);
+		hdd_err("invalid session id: %d", adapter->sessionId);
 		return -EINVAL;
 	}
-
-	if (sta_ctx->hdd_ReassocScenario) {
-		hdd_debug("Roaming is in progress, rej this req");
-		return -EINVAL;
-	}
-
-	HDD_IS_RATE_LIMIT_REQ(is_rate_limited,
-			      pHddCtx->config->nb_commands_interval);
 
 	mutex_lock(&pHddCtx->iface_change_lock);
-	if (pHddCtx->driver_status != DRIVER_MODULES_ENABLED ||
-	    is_rate_limited) {
+	if (pHddCtx->driver_status != DRIVER_MODULES_ENABLED) {
 		mutex_unlock(&pHddCtx->iface_change_lock);
-		hdd_debug("Modules not enabled/rate limited, use cached stats");
+		hdd_debug("Driver Module not enabled return success");
 		/* Send cached data to upperlayer*/
 		*dbm = adapter->hdd_stats.ClassA_stat.max_pwr;
 		return 0;
@@ -2812,146 +2746,5 @@ int hdd_wlan_fake_apps_resume(struct wiphy *wiphy, struct net_device *dev)
 	__hdd_wlan_fake_apps_resume(wiphy, dev);
 
 	return 0;
-}
-#endif
-
-#ifdef FW_THERMAL_THROTTLE_SUPPORT
-void hdd_send_thermal_notification(hdd_context_t *hdd_ctx,
-				   enum hdd_thermal_states thermal_state)
-{
-	QDF_STATUS status;
-	hdd_adapter_t *sta_adapter;
-	bool is_sta_connected, is_sta_connecting, is_sta_disconnecting;
-
-	if (!hdd_ctx) {
-		hdd_err("hdd context is null");
-		return;
-	}
-
-	if (!hdd_ctx->is_thermal_system_registered) {
-		hdd_debug("Thermal system not registered! Ignore");
-		return;
-	}
-
-	sta_adapter = hdd_get_adapter(hdd_ctx, QDF_STA_MODE);
-	if (!sta_adapter) {
-		hdd_err("STA adapter not present");
-		return;
-	}
-
-	is_sta_connected = hdd_conn_is_connected(WLAN_HDD_GET_STATION_CTX_PTR(
-						 sta_adapter));
-	is_sta_connecting = hdd_is_connecting(WLAN_HDD_GET_STATION_CTX_PTR(
-					      sta_adapter));
-	is_sta_disconnecting =
-		hdd_is_disconnecting(WLAN_HDD_GET_STATION_CTX_PTR(sta_adapter));
-
-	if (cds_get_connection_count() > 1) {
-		hdd_debug("Concurrent sessions present ignoring thermal notif");
-		return;
-	}
-
-	if (is_sta_disconnecting) {
-		hdd_debug("STA disconnecting; send disable thermal notif");
-		thermal_state = 0;
-		goto send;
-	}
-
-	if (!is_sta_connected || is_sta_connecting) {
-		hdd_debug("STA not connected/connecting, ignore thermal notif");
-		return;
-	}
-
-	switch (thermal_state) {
-	case HDD_THERMAL_STATE_HIGH:
-		cds_set_driver_thermal_mitigated(true);
-		hdd_debug("STA connected, issue disconnect");
-		wlan_hdd_disconnect(sta_adapter, eCSR_DISCONNECT_REASON_DEAUTH);
-
-		/*
-		 * Sending the thermal notification after disconnection will be
-		 * taken care in the disconnect path, so return from here and
-		 * do not send the notification now.
-		 */
-		return;
-	case HDD_THERMAL_STATE_MEDIUM:
-	case HDD_THERMAL_STATE_NORMAL:
-		cds_set_driver_thermal_mitigated(false);
-		break;
-	default:
-		hdd_err("Invalid thermal state: %d", thermal_state);
-		return;
-	}
-
-send:
-	status = wma_update_thermal_mitigation_to_fw(thermal_state);
-	if (QDF_IS_STATUS_ERROR(status))
-		hdd_err("Failed to send thermal mitigation to FW");
-}
-
-/**
- * hdd_thermal_mitigation_disable() - Disable thermal mitigation
- * @hdd_ctx: The HDD context
- *
- * This function verifies whether driver is already performing any sort of
- * thermal mitigation in connected STA scenario. If that is the case, then it
- * disables the thermal mitigation by sending command to FW.
- *
- * Return: None
- */
-void hdd_thermal_mitigation_disable(hdd_context_t *hdd_ctx)
-{
-	if (cds_is_sta_active_connection_exists() &&
-	    hdd_ctx->is_thermal_system_registered) {
-		hdd_debug("Disabling thermal mitigation; STA+ concr not supp");
-		hdd_send_thermal_notification(hdd_ctx,
-					      HDD_THERMAL_STATE_NORMAL);
-	}
-}
-
-/**
- * hdd_thermal_mitigation_enable() - Enable thermal mitigation
- * @hdd_ctx: The HDD context
- *
- * This function verifies whether driver is connected in STA with no concurrent
- * sessions active. If yes then it sends the current thermal state notification
- * to the firmware.
- *
- * Return: None
- */
-void hdd_thermal_mitigation_enable(hdd_context_t *hdd_ctx)
-{
-	uint16_t thermal_state = HDD_THERMAL_STATE_NORMAL;
-
-	if (cds_is_sta_active_connection_exists() &&
-	    cds_get_connection_count() == 1 &&
-	    hdd_ctx->is_thermal_system_registered) {
-		hdd_debug("Re-enabling thermal mitigation");
-		if (!pld_get_thermal_state(hdd_ctx->parent_dev, &thermal_state))
-			hdd_send_thermal_notification(hdd_ctx,
-						      hdd_map_thermal_states(
-						      thermal_state));
-	}
-}
-
-/**
- * hdd_map_thermal_states() - Return thermal state enum from int value
- * @state: The state that is to be mapped
- *
- * Return: enum hdd_thermal_states value for the corresponding state
- */
-enum hdd_thermal_states hdd_map_thermal_states(uint16_t state)
-{
-	switch (state) {
-	case 0:
-		return HDD_THERMAL_STATE_NORMAL;
-	case 1:
-		return HDD_THERMAL_STATE_MEDIUM;
-	case 2:
-		return HDD_THERMAL_STATE_HIGH;
-	default:
-		hdd_err("Invalid thermal state");
-		return HDD_THERMAL_STATE_INVAL;
-	}
 }
 #endif

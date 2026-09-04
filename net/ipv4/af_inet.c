@@ -90,7 +90,6 @@
 #include <linux/random.h>
 #include <linux/slab.h>
 #include <linux/netfilter/xt_qtaguid.h>
-#include <linux/android_version.h>
 
 #include <asm/uaccess.h>
 
@@ -394,18 +393,8 @@ lookup_protocol:
 
 	if (sk->sk_prot->init) {
 		err = sk->sk_prot->init(sk);
-		if (err) {
+		if (err)
 			sk_common_release(sk);
-			goto out;
-		}
-	}
-
-	if (!kern) {
-		err = BPF_CGROUP_RUN_PROG_INET_SOCK(sk);
-		if (err) {
-			sk_common_release(sk);
-			goto out;
-		}
 	}
 out:
 	return err;
@@ -428,8 +417,7 @@ int inet_release(struct socket *sock)
 		long timeout;
 
 #ifdef CONFIG_NETFILTER_XT_MATCH_QTAGUID
-		if (get_android_version() < 12)
-			qtaguid_untag(sock, true);
+		qtaguid_untag(sock, true);
 #endif
 		/* Applications forget to leave groups before exiting */
 		ip_mc_drop_socket(sk);
@@ -595,30 +583,19 @@ static long inet_wait_for_connect(struct sock *sk, long timeo, int writebias)
  *	TCP 'magic' in here.
  */
 int __inet_stream_connect(struct socket *sock, struct sockaddr *uaddr,
-			  int addr_len, int flags, int is_sendmsg)
+			  int addr_len, int flags)
 {
 	struct sock *sk = sock->sk;
 	int err;
 	long timeo;
 
-	/*
-	 * uaddr can be NULL and addr_len can be 0 if:
-	 * sk is a TCP fastopen active socket and
-	 * TCP_FASTOPEN_CONNECT sockopt is set and
-	 * we already have a valid cookie for this socket.
-	 * In this case, user can call write() after connect().
-	 * write() will invoke tcp_sendmsg_fastopen() which calls
-	 * __inet_stream_connect().
-	 */
-	if (uaddr) {
-		if (addr_len < sizeof(uaddr->sa_family))
-			return -EINVAL;
+	if (addr_len < sizeof(uaddr->sa_family))
+		return -EINVAL;
 
-		if (uaddr->sa_family == AF_UNSPEC) {
-			err = sk->sk_prot->disconnect(sk, flags);
-			sock->state = err ? SS_DISCONNECTING : SS_UNCONNECTED;
-			goto out;
-		}
+	if (uaddr->sa_family == AF_UNSPEC) {
+		err = sk->sk_prot->disconnect(sk, flags);
+		sock->state = err ? SS_DISCONNECTING : SS_UNCONNECTED;
+		goto out;
 	}
 
 	switch (sock->state) {
@@ -629,10 +606,7 @@ int __inet_stream_connect(struct socket *sock, struct sockaddr *uaddr,
 		err = -EISCONN;
 		goto out;
 	case SS_CONNECTING:
-		if (inet_sk(sk)->defer_connect)
-			err = is_sendmsg ? -EINPROGRESS : -EISCONN;
-		else
-			err = -EALREADY;
+		err = -EALREADY;
 		/* Fall out of switch with err, set for this state */
 		break;
 	case SS_UNCONNECTED:
@@ -645,9 +619,6 @@ int __inet_stream_connect(struct socket *sock, struct sockaddr *uaddr,
 			goto out;
 
 		sock->state = SS_CONNECTING;
-
-		if (!err && inet_sk(sk)->defer_connect)
-			goto out;
 
 		/* Just entered SS_CONNECTING state; the only
 		 * difference is that return value in non-blocking
@@ -704,7 +675,7 @@ int inet_stream_connect(struct socket *sock, struct sockaddr *uaddr,
 	int err;
 
 	lock_sock(sock->sk);
-	err = __inet_stream_connect(sock, uaddr, addr_len, flags, 0);
+	err = __inet_stream_connect(sock, uaddr, addr_len, flags);
 	release_sock(sock->sk);
 	return err;
 }
@@ -1831,10 +1802,6 @@ static int __init inet_init(void)
 
 	tcp_v4_init();
 
-	/* Initialise per-cpu ipv4 mibs */
-	if (init_ipv4_mibs())
-		panic("%s: Cannot init ipv4 mibs\n", __func__);
-
 	/* Setup TCP slab cache for open requests. */
 	tcp_init();
 
@@ -1863,6 +1830,12 @@ static int __init inet_init(void)
 
 	if (init_inet_pernet_ops())
 		pr_crit("%s: Cannot init ipv4 inet pernet ops\n", __func__);
+	/*
+	 *	Initialise per-cpu ipv4 mibs
+	 */
+
+	if (init_ipv4_mibs())
+		pr_crit("%s: Cannot init ipv4 mibs\n", __func__);
 
 	ipv4_proc_init();
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2020, 2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2018 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -85,7 +85,7 @@
 
 #define HDD_IPA_MAX_PENDING_EVENT_COUNT    20
 
-#define IPA_WLAN_RX_SOFTIRQ_THRESH 32
+#define IPA_WLAN_RX_SOFTIRQ_THRESH 16
 
 #define HDD_IPA_MAX_BANDWIDTH 800
 
@@ -503,6 +503,7 @@ struct hdd_ipa_priv {
 	struct completion ipa_resource_comp;
 
 	uint32_t wdi_version;
+	bool is_smmu_enabled;	/* IPA caps returned from ipa_wdi_init */
 };
 
 #define HDD_IPA_WLAN_FRAG_HEADER        sizeof(struct frag_header)
@@ -658,7 +659,6 @@ static int hdd_ipa_uc_enable_pipes(struct hdd_ipa_priv *hdd_ipa);
 static int hdd_ipa_wdi_init(struct hdd_ipa_priv *hdd_ipa);
 static void hdd_ipa_send_pkt_to_tl(struct hdd_ipa_iface_context *iface_context,
 		struct ipa_rx_data *ipa_tx_desc);
-static int hdd_ipa_setup_sys_pipe(struct hdd_ipa_priv *hdd_ipa);
 
 /**
  * hdd_ipa_uc_get_db_paddr() - Get Doorbell physical address
@@ -871,6 +871,17 @@ static inline bool hdd_ipa_is_ipv6_enabled(hdd_context_t *hdd_ctx)
 }
 
 /**
+ * hdd_ipa_is_rm_enabled() - Is IPA resource manager enabled?
+ * @hdd_ipa: Global HDD IPA context
+ *
+ * Return: true if resource manager is enabled, otherwise false
+ */
+static inline bool hdd_ipa_is_rm_enabled(hdd_context_t *hdd_ctx)
+{
+	return HDD_IPA_IS_CONFIG_ENABLED(hdd_ctx, HDD_IPA_RM_ENABLE_MASK);
+}
+
+/**
  * hdd_ipa_is_rt_debugging_enabled() - Is IPA real-time debug enabled?
  * @hdd_ipa: Global HDD IPA context
  *
@@ -1046,21 +1057,6 @@ static void hdd_ipa_wdi_init_metering(struct hdd_ipa_priv *ipa_ctxt, void *in)
 #ifdef CONFIG_IPA_WDI_UNIFIED_API
 
 /**
- * hdd_ipa_is_rm_enabled() - Is IPA resource manager enabled?
- * @hdd_ipa: Global HDD IPA context
- *
- * IPA RM is deprecated and IPA PM is involved. WLAN driver
- * has no control over IPA PM and thus we could regard IPA
- * RM as always enabled for power efficiency.
- *
- * Return: true
- */
-static inline bool hdd_ipa_is_rm_enabled(hdd_context_t *hdd_ctx)
-{
-	return true;
-}
-
-/**
  * hdd_ipa_is_clk_scaling_enabled() - Is IPA clock scaling enabled?
  * @hdd_ipa: Global HDD IPA context
  *
@@ -1086,6 +1082,12 @@ static inline void hdd_ipa_wdi_get_wdi_version(struct hdd_ipa_priv *hdd_ipa)
 	hdd_ipa->wdi_version = IPA_WDI_1;
 }
 #endif
+
+static bool hdd_ipa_wdi_is_smmu_enabled(struct hdd_ipa_priv *hdd_ipa,
+		qdf_device_t osdev)
+{
+	return hdd_ipa->is_smmu_enabled && qdf_mem_smmu_s1_enabled(osdev);
+}
 
 #ifdef QCA_LL_TX_FLOW_CONTROL_V2
 static bool hdd_ipa_wdi_is_mcc_mode_enabled(struct hdd_ipa_priv *hdd_ipa)
@@ -1135,6 +1137,9 @@ static int hdd_ipa_wdi_init(struct hdd_ipa_priv *hdd_ipa)
 	if (out.is_uC_ready) {
 		HDD_IPA_LOG(QDF_TRACE_LEVEL_DEBUG, "IPA uC READY");
 		hdd_ipa->uc_loaded = true;
+		hdd_ipa->is_smmu_enabled = out.is_smmu_enabled;
+		HDD_IPA_LOG(QDF_TRACE_LEVEL_DEBUG, "is_smmu_enabled=%d",
+				hdd_ipa->is_smmu_enabled);
 	} else {
 		ret = -EACCES;
 		HDD_IPA_LOG(QDF_TRACE_LEVEL_ERROR,
@@ -1169,11 +1174,6 @@ static int hdd_ipa_wdi_conn_pipes(struct hdd_ipa_priv *hdd_ipa,
 	int ret;
 	int i;
 
-	if (qdf_unlikely(NULL == osdev)) {
-		HDD_IPA_LOG(QDF_TRACE_LEVEL_ERROR, "osdev is NULL");
-		return QDF_STATUS_E_FAILURE;
-	}
-
 	in = qdf_mem_malloc(sizeof(*in));
 	if (!in) {
 		HDD_IPA_LOG(QDF_TRACE_LEVEL_ERROR,
@@ -1195,7 +1195,7 @@ static int hdd_ipa_wdi_conn_pipes(struct hdd_ipa_priv *hdd_ipa,
 		in->num_sys_pipe_needed = 0;
 	}
 
-	if (qdf_mem_smmu_s1_enabled(osdev))
+	if (hdd_ipa_wdi_is_smmu_enabled(hdd_ipa, osdev))
 		in->is_smmu_enabled = true;
 	else
 		in->is_smmu_enabled = false;
@@ -1592,17 +1592,6 @@ int hdd_ipa_uc_smmu_map(bool map, uint32_t num_buf, qdf_mem_info_t *buf_arr)
 #else /* CONFIG_IPA_WDI_UNIFIED_API */
 
 /**
- * hdd_ipa_is_rm_enabled() - Is IPA resource manager enabled?
- * @hdd_ipa: Global HDD IPA context
- *
- * Return: true if resource manager is enabled, otherwise false
- */
-static inline bool hdd_ipa_is_rm_enabled(hdd_context_t *hdd_ctx)
-{
-	return HDD_IPA_IS_CONFIG_ENABLED(hdd_ctx, HDD_IPA_RM_ENABLE_MASK);
-}
-
-/**
  * hdd_ipa_is_clk_scaling_enabled() - Is IPA clock scaling enabled?
  * @hdd_ipa: Global HDD IPA context
  *
@@ -1617,6 +1606,12 @@ static inline bool hdd_ipa_is_clk_scaling_enabled(hdd_context_t *hdd_ctx)
 
 static inline void hdd_ipa_wdi_get_wdi_version(struct hdd_ipa_priv *hdd_ipa)
 {
+}
+
+static int hdd_ipa_wdi_is_smmu_enabled(struct hdd_ipa_priv *hdd_ipa,
+		qdf_device_t osdev)
+{
+	return qdf_mem_smmu_s1_enabled(osdev);
 }
 
 #ifdef FEATURE_METERING
@@ -1709,7 +1704,7 @@ static int hdd_ipa_wdi_conn_pipes(struct hdd_ipa_priv *hdd_ipa,
 		pipe_in.sys.keep_ipa_awake = true;
 	}
 
-	pipe_in.smmu_enabled = qdf_mem_smmu_s1_enabled(osdev);
+	pipe_in.smmu_enabled = hdd_ipa_wdi_is_smmu_enabled(hdd_ipa, osdev);
 	if (pipe_in.smmu_enabled) {
 		qdf_mem_copy(&pipe_in.u.dl_smmu.comp_ring,
 			     &ipa_res->tx_comp_ring->sgtable,
@@ -1798,7 +1793,7 @@ static int hdd_ipa_wdi_conn_pipes(struct hdd_ipa_priv *hdd_ipa,
 		pipe_in.sys.keep_ipa_awake = true;
 	}
 
-	pipe_in.smmu_enabled = qdf_mem_smmu_s1_enabled(osdev);
+	pipe_in.smmu_enabled = hdd_ipa_wdi_is_smmu_enabled(hdd_ipa, osdev);
 	if (pipe_in.smmu_enabled) {
 		qdf_mem_copy(&pipe_in.u.ul_smmu.rdy_ring,
 			     &ipa_res->rx_rdy_ring->sgtable,
@@ -2576,7 +2571,7 @@ static int hdd_ipa_wdi_rm_try_release(struct hdd_ipa_priv *hdd_ipa)
 	 * while there is healthy amount of data transfer going on by
 	 * releasing the wake_lock after some delay.
 	 */
-	queue_delayed_work(system_power_efficient_wq, &hdd_ipa->wake_lock_work,
+	schedule_delayed_work(&hdd_ipa->wake_lock_work,
 			      msecs_to_jiffies
 				      (HDD_IPA_RX_INACTIVITY_MSEC_DELAY));
 
@@ -4063,19 +4058,6 @@ static void hdd_ipa_uc_loaded_handler(struct hdd_ipa_priv *ipa_ctxt)
 		return;
 	}
 
-	/* Setup IPA sys_pipe for MCC */
-	if (hdd_ipa_uc_sta_is_enabled(ipa_ctxt->hdd_ctx)) {
-		ret = hdd_ipa_setup_sys_pipe(ipa_ctxt);
-		if (ret) {
-			HDD_IPA_LOG(QDF_TRACE_LEVEL_ERROR,
-				    "ipa sys pipes setup failed ret=%d", ret);
-			return;
-		}
-
-		INIT_WORK(&ipa_ctxt->mcc_work,
-				hdd_ipa_mcc_work_handler);
-	}
-
 	/* Connect pipe */
 	ret = hdd_ipa_wdi_conn_pipes(ipa_ctxt, ipa_res);
 	if (ret) {
@@ -4883,7 +4865,7 @@ QDF_STATUS hdd_ipa_uc_ol_init(hdd_context_t *hdd_ctx)
 				IPA_CLIENT_WLAN1_PROD);
 	}
 
-	if (qdf_mem_smmu_s1_enabled(osdev)) {
+	if (hdd_ipa_wdi_is_smmu_enabled(ipa_ctxt, osdev)) {
 		pld_smmu_map(osdev->dev,
 				ipa_ctxt->tx_comp_doorbell_dmaaddr,
 				&tx_comp_db_dmaaddr,
@@ -5632,8 +5614,7 @@ static void hdd_ipa_send_skb_to_network(qdf_nbuf_t skb,
 	if (!enabled)
 		hdd_ipa_set_wake_up_idle(true);
 
-	if ((adapter->device_mode == QDF_SAP_MODE) &&
-	     (qdf_nbuf_is_ipv4_dhcp_pkt(skb) == true)) {
+	if (adapter->device_mode == QDF_SAP_MODE) {
 		/* Send DHCP Indication to FW */
 		qdf_mem_copy(&src_mac, skb->data + QDF_NBUF_SRC_MAC_OFFSET,
 			     sizeof(src_mac));
@@ -5779,40 +5760,6 @@ static enum hdd_ipa_forward_type hdd_ipa_intrabss_forward(
 }
 
 /**
- * wlan_ipa_eapol_intrabss_fwd_check() - Check if eapol pkt intrabss fwd is
- *  allowed or not
- * @nbuf: network buffer
- * @vdev_id: vdev id
- *
- * Return: true if intrabss fwd is allowed for eapol else false
- */
-static bool
-wlan_ipa_eapol_intrabss_fwd_check(qdf_nbuf_t nbuf, uint8_t vdev_id)
-{
-	ol_txrx_vdev_handle vdev;
-	uint8_t *vdev_mac_addr;
-
-	vdev = ol_txrx_get_vdev_from_vdev_id(vdev_id);
-
-	if (!vdev) {
-		HDD_IPA_LOG(QDF_TRACE_LEVEL_ERROR, "txrx vdev is NULL for vdev_id = %d",
-			    vdev_id);
-		return false;
-	}
-
-	vdev_mac_addr = ol_txrx_get_vdev_mac_addr( vdev);
-
-	if (!vdev_mac_addr)
-		return false;
-
-	if (qdf_mem_cmp(qdf_nbuf_data(nbuf) + QDF_NBUF_DEST_MAC_OFFSET,
-			vdev_mac_addr, QDF_MAC_ADDR_SIZE))
-		return false;
-
-	return true;
-}
-
-/**
  * __hdd_ipa_w2i_cb() - WLAN to IPA callback handler
  * @priv: pointer to private data registered with IPA (we register a
  *	pointer to the global IPA context)
@@ -5832,12 +5779,6 @@ static void __hdd_ipa_w2i_cb(void *priv, enum ipa_dp_evt_type evt,
 	struct hdd_ipa_iface_context *iface_context;
 	uint8_t fw_desc;
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
-	bool is_eapol_wapi = false;
-	struct qdf_mac_addr peer_mac_addr = QDF_MAC_ADDR_ZERO_INITIALIZER;
-	uint8_t sta_idx;
-	ol_txrx_peer_handle peer;
-	ol_txrx_pdev_handle pdev;
-	hdd_station_ctx_t *sta_ctx;
 
 	hdd_ipa = (struct hdd_ipa_priv *)priv;
 
@@ -5857,13 +5798,6 @@ static void __hdd_ipa_w2i_cb(void *priv, enum ipa_dp_evt_type evt,
 			HDD_IPA_LOG(QDF_TRACE_LEVEL_ERROR,
 					"Invalid context: drop packet");
 			hdd_ipa->ipa_rx_internal_drop_count++;
-			kfree_skb(skb);
-			return;
-		}
-
-		pdev = cds_get_context(QDF_MODULE_ID_TXRX);
-		if (NULL == pdev) {
-			WMA_LOGE("%s: DP pdev is NULL", __func__);
 			kfree_skb(skb);
 			return;
 		}
@@ -5908,52 +5842,6 @@ static void __hdd_ipa_w2i_cb(void *priv, enum ipa_dp_evt_type evt,
 			skb_pull(skb, HDD_IPA_UC_WLAN_CLD_HDR_LEN);
 		} else {
 			skb_pull(skb, HDD_IPA_WLAN_CLD_HDR_LEN);
-		}
-
-		if (iface_context->adapter->device_mode == QDF_STA_MODE) {
-			sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(
-							iface_context->adapter);
-			qdf_copy_macaddr(&peer_mac_addr,
-					 &sta_ctx->conn_info.bssId);
-		} else if (iface_context->adapter->device_mode
-			   == QDF_SAP_MODE) {
-			qdf_mem_copy(peer_mac_addr.bytes, qdf_nbuf_data(skb) +
-				     QDF_NBUF_SRC_MAC_OFFSET,
-				     QDF_MAC_ADDR_SIZE);
-		}
-
-		if (qdf_nbuf_is_ipv4_eapol_pkt(skb)) {
-			is_eapol_wapi = true;
-			if (iface_context->adapter->device_mode ==
-			    QDF_SAP_MODE &&
-			    !wlan_ipa_eapol_intrabss_fwd_check(skb,
-					   iface_context->adapter->sessionId)) {
-				HDD_IPA_LOG(QDF_TRACE_LEVEL_ERROR,
-					    "EAPOL intrabss fwd drop DA: %pM",
-					    qdf_nbuf_data(skb) +
-					    QDF_NBUF_DEST_MAC_OFFSET);
-				hdd_ipa->ipa_rx_internal_drop_count++;
-				kfree_skb(skb);
-				return;
-			}
-		} else if (qdf_nbuf_is_ipv4_wapi_pkt(skb)) {
-			is_eapol_wapi = true;
-		}
-
-		peer = ol_txrx_find_peer_by_addr(pdev, peer_mac_addr.bytes,
-						 &sta_idx);
-
-		/*
-		 * Check for peer auth state before allowing non-EAPOL/WAPI
-		 * frames to be intrabss forwarded or submitted to stack.
-		 */
-		if (peer && ol_txrx_get_peer_state(peer) !=
-		    OL_TXRX_PEER_STATE_AUTH && !is_eapol_wapi) {
-			HDD_IPA_LOG(QDF_TRACE_LEVEL_ERROR,
-				    "non-EAPOL/WAPI frame received when peer is unauthorized");
-			hdd_ipa->ipa_rx_internal_drop_count++;
-			kfree_skb(skb);
-			return;
 		}
 
 		iface_context->stats.num_rx_ipa_excep++;
@@ -6021,24 +5909,10 @@ void hdd_ipa_nbuf_cb(qdf_nbuf_t skb)
 	struct ipa_rx_data *ipa_tx_desc;
 	struct hdd_ipa_tx_desc *tx_desc;
 	uint16_t id;
-	qdf_device_t osdev;
 
 	if (!qdf_nbuf_ipa_owned_get(skb)) {
 		dev_kfree_skb_any(skb);
 		return;
-	}
-
-	osdev = cds_get_context(QDF_MODULE_ID_QDF_DEVICE);
-	if (osdev && qdf_mem_smmu_s1_enabled(osdev)) {
-		if (hdd_ipa_uc_sta_is_enabled(hdd_ipa->hdd_ctx)) {
-			qdf_dma_addr_t paddr = QDF_NBUF_CB_PADDR(skb);
-			qdf_nbuf_mapped_paddr_set(skb,
-						  paddr -
-						  HDD_IPA_WLAN_FRAG_HEADER -
-						  HDD_IPA_WLAN_IPA_HEADER);
-		}
-
-		qdf_nbuf_unmap(osdev, skb, QDF_DMA_TO_DEVICE);
 	}
 
 	/* Get Tx desc pointer from SKB CB */
@@ -6078,9 +5952,6 @@ static void hdd_ipa_send_pkt_to_tl(
 	hdd_adapter_t *adapter = NULL;
 	qdf_nbuf_t skb;
 	struct hdd_ipa_tx_desc *tx_desc;
-	qdf_device_t osdev;
-	qdf_dma_addr_t paddr;
-	QDF_STATUS status;
 
 	qdf_spin_lock_bh(&iface_context->interface_lock);
 	adapter = iface_context->adapter;
@@ -6108,15 +5979,6 @@ static void hdd_ipa_send_pkt_to_tl(
 		}
 	}
 
-	osdev = cds_get_context(QDF_MODULE_ID_QDF_DEVICE);
-	if (!osdev) {
-		ipa_free_skb(ipa_tx_desc);
-		iface_context->stats.num_tx_drop++;
-		qdf_spin_unlock_bh(&iface_context->interface_lock);
-		hdd_ipa_wdi_rm_try_release(hdd_ipa);
-		return;
-	}
-
 	++adapter->stats.tx_packets;
 
 	qdf_spin_unlock_bh(&iface_context->interface_lock);
@@ -6127,34 +5989,15 @@ static void hdd_ipa_send_pkt_to_tl(
 
 	/* Store IPA Tx buffer ownership into SKB CB */
 	qdf_nbuf_ipa_owned_set(skb);
-
-	if (qdf_mem_smmu_s1_enabled(osdev)) {
-		status = qdf_nbuf_map(osdev, skb, QDF_DMA_TO_DEVICE);
-		if (QDF_IS_STATUS_SUCCESS(status)) {
-			paddr = qdf_nbuf_get_frag_paddr(skb, 0);
-		} else {
-			ipa_free_skb(ipa_tx_desc);
-			qdf_spin_lock_bh(&iface_context->interface_lock);
-			iface_context->stats.num_tx_drop++;
-			qdf_spin_unlock_bh(&iface_context->interface_lock);
-			hdd_ipa_wdi_rm_try_release(hdd_ipa);
-			return;
-		}
-	} else {
-		paddr = ipa_tx_desc->dma_addr;
-	}
-
 	if (hdd_ipa_uc_sta_is_enabled(hdd_ipa->hdd_ctx)) {
 		qdf_nbuf_mapped_paddr_set(skb,
-					  paddr +
-					  HDD_IPA_WLAN_FRAG_HEADER +
-					  HDD_IPA_WLAN_IPA_HEADER);
-
+					  ipa_tx_desc->dma_addr
+					  + HDD_IPA_WLAN_FRAG_HEADER
+					  + HDD_IPA_WLAN_IPA_HEADER);
 		ipa_tx_desc->skb->len -=
 			HDD_IPA_WLAN_FRAG_HEADER + HDD_IPA_WLAN_IPA_HEADER;
-	} else {
-		qdf_nbuf_mapped_paddr_set(skb, paddr);
-	}
+	} else
+		qdf_nbuf_mapped_paddr_set(skb, ipa_tx_desc->dma_addr);
 
 	qdf_spin_lock_bh(&hdd_ipa->q_lock);
 	/* get free Tx desc and assign ipa_tx_desc pointer */
@@ -6170,13 +6013,6 @@ static void hdd_ipa_send_pkt_to_tl(
 	} else {
 		hdd_ipa->stats.num_tx_desc_error++;
 		qdf_spin_unlock_bh(&hdd_ipa->q_lock);
-
-		if (qdf_mem_smmu_s1_enabled(osdev)) {
-			if (hdd_ipa_uc_sta_is_enabled(hdd_ipa->hdd_ctx))
-				qdf_nbuf_mapped_paddr_set(skb, paddr);
-			qdf_nbuf_unmap(osdev, skb, QDF_DMA_TO_DEVICE);
-		}
-
 		ipa_free_skb(ipa_tx_desc);
 		hdd_ipa_wdi_rm_try_release(hdd_ipa);
 		return;
@@ -6876,7 +6712,7 @@ void hdd_ipa_set_mcc_mode(bool mcc_mode)
 	schedule_work(&hdd_ipa->mcc_work);
 }
 
-void hdd_ipa_mcc_work_handler(struct work_struct *work)
+static void hdd_ipa_mcc_work_handler(struct work_struct *work)
 {
 	struct hdd_ipa_priv *hdd_ipa;
 	hdd_context_t *hdd_ctx;
@@ -6956,7 +6792,7 @@ static int __hdd_ipa_wlan_evt(hdd_adapter_t *adapter, uint8_t sta_id,
 	int ret = 0;
 
 	if (hdd_validate_adapter(adapter)) {
-		HDD_IPA_LOG(QDF_TRACE_LEVEL_DEBUG, "Invalid adapter: 0x%pK",
+		HDD_IPA_LOG(QDF_TRACE_LEVEL_ERROR, "Invalid adapter: 0x%pK",
 			    adapter);
 		return -EINVAL;
 	}
@@ -7111,7 +6947,7 @@ static int __hdd_ipa_wlan_evt(hdd_adapter_t *adapter, uint8_t sta_id,
 
 		qdf_mutex_release(&hdd_ipa->event_lock);
 
-		HDD_IPA_LOG(QDF_TRACE_LEVEL_DEBUG, "sta_connected=%d",
+		HDD_IPA_LOG(QDF_TRACE_LEVEL_INFO, "sta_connected=%d",
 			    hdd_ipa->sta_connected);
 		break;
 
@@ -7196,7 +7032,7 @@ static int __hdd_ipa_wlan_evt(hdd_adapter_t *adapter, uint8_t sta_id,
 
 		qdf_mutex_release(&hdd_ipa->event_lock);
 
-		HDD_IPA_LOG(QDF_TRACE_LEVEL_DEBUG, "sta_connected=%d",
+		HDD_IPA_LOG(QDF_TRACE_LEVEL_INFO, "sta_connected=%d",
 			    hdd_ipa->sta_connected);
 		break;
 
@@ -7610,6 +7446,14 @@ static QDF_STATUS __hdd_ipa_init(hdd_context_t *hdd_ctx)
 		hdd_ipa->sta_connected = 0;
 		hdd_ipa->ipa_pipes_down = true;
 		hdd_ipa->wdi_enabled = false;
+		/* Setup IPA sys_pipe for MCC */
+		if (hdd_ipa_uc_sta_is_enabled(hdd_ipa->hdd_ctx)) {
+			ret = hdd_ipa_setup_sys_pipe(hdd_ipa);
+			if (ret)
+				goto fail_create_sys_pipe;
+
+			INIT_WORK(&hdd_ipa->mcc_work, hdd_ipa_mcc_work_handler);
+		}
 
 		ret = hdd_ipa_wdi_init(hdd_ipa);
 		if (ret) {
@@ -7617,25 +7461,15 @@ static QDF_STATUS __hdd_ipa_init(hdd_context_t *hdd_ctx)
 					"ipa wdi init failed ret=%d", ret);
 			if (ret == -EACCES) {
 				if (hdd_ipa_uc_send_wdi_control_msg(false))
-					goto ipa_wdi_destroy;
+					goto fail_create_sys_pipe;
 			} else {
-				goto ipa_wdi_destroy;
-			}
-		} else {
-			/* Setup IPA sys_pipe for MCC */
-			if (hdd_ipa_uc_sta_is_enabled(hdd_ipa->hdd_ctx)) {
-				ret = hdd_ipa_setup_sys_pipe(hdd_ipa);
-				if (ret)
-					goto ipa_wdi_destroy;
-
-				INIT_WORK(&hdd_ipa->mcc_work,
-					  hdd_ipa_mcc_work_handler);
+				goto fail_create_sys_pipe;
 			}
 		}
 	} else {
 		ret = hdd_ipa_setup_sys_pipe(hdd_ipa);
 		if (ret)
-			goto ipa_wdi_destroy;
+			goto fail_create_sys_pipe;
 	}
 
 	init_completion(&hdd_ipa->ipa_resource_comp);
@@ -7643,7 +7477,7 @@ static QDF_STATUS __hdd_ipa_init(hdd_context_t *hdd_ctx)
 	HDD_IPA_LOG(QDF_TRACE_LEVEL_DEBUG, "exit: success");
 	return QDF_STATUS_SUCCESS;
 
-ipa_wdi_destroy:
+fail_create_sys_pipe:
 	hdd_ipa_wdi_destroy_rm(hdd_ipa);
 fail_setup_rm:
 	qdf_spinlock_destroy(&hdd_ipa->pm_lock);
@@ -7808,33 +7642,4 @@ void hdd_ipa_clean_adapter_iface(hdd_adapter_t *adapter)
 	if (iface_ctx)
 		hdd_ipa_cleanup_iface(iface_ctx);
 }
-
-void hdd_ipa_fw_rejuvenate_send_msg(hdd_context_t *hdd_ctx)
-{
-	struct hdd_ipa_priv *hdd_ipa;
-	struct ipa_msg_meta meta;
-	struct ipa_wlan_msg *msg;
-	int ret;
-
-	hdd_ipa = hdd_ctx->hdd_ipa;
-	meta.msg_len = sizeof(*msg);
-	msg = qdf_mem_malloc(meta.msg_len);
-	if (!msg) {
-		HDD_IPA_LOG(QDF_TRACE_LEVEL_DEBUG, "msg allocation failed");
-		return;
-	}
-	meta.msg_type = WLAN_FWR_SSR_BEFORE_SHUTDOWN;
-	HDD_IPA_LOG(QDF_TRACE_LEVEL_DEBUG, "ipa_send_msg(Evt:%d)",
-		    meta.msg_type);
-	ret = ipa_send_msg(&meta, msg, hdd_ipa_msg_free_fn);
-
-	if (ret) {
-		HDD_IPA_LOG(QDF_TRACE_LEVEL_ERROR,
-			    "ipa_send_msg(Evt:%d)-fail=%d",
-			    meta.msg_type, ret);
-		qdf_mem_free(msg);
-	}
-	hdd_ipa->stats.num_send_msg++;
-}
-
 #endif /* IPA_OFFLOAD */

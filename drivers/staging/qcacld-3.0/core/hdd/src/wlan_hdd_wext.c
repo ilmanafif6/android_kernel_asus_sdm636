@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2018 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -3888,9 +3888,6 @@ void hdd_clear_roam_profile_ie(hdd_adapter_t *pAdapter)
 
 	qdf_mem_zero(pWextState->roamProfile.Keys.KeyLength, CSR_MAX_NUM_KEY);
 
-	qdf_mem_zero(pWextState->roamProfile.Keys.KeyMaterial,
-		     sizeof(pWextState->roamProfile.Keys.KeyMaterial));
-
 #ifdef FEATURE_WLAN_WAPI
 	pAdapter->wapi_info.wapiAuthMode = WAPI_AUTH_MODE_OPEN;
 	pAdapter->wapi_info.nWapiMode = 0;
@@ -5759,7 +5756,7 @@ static void hdd_get_station_statistics_cb(void *stats, void *context)
 	struct csr_per_chain_rssi_stats_info *per_chain_rssi_stats;
 
 	if (NULL == stats) {
-		hdd_err("Bad param, pStats [%pK]", stats);
+		hdd_err("Bad param, pStats [%p]", stats);
 		return;
 	}
 
@@ -5935,7 +5932,7 @@ void wlan_hdd_change_country_code_callback(void *context)
 	hdd_adapter_t *adapter = context;
 
 	if (adapter && (WLAN_HDD_ADAPTER_MAGIC == adapter->magic))
-		qdf_event_set(&adapter->change_country_code);
+		complete(&adapter->change_country_code);
 }
 
 /**
@@ -7226,17 +7223,17 @@ static int __iw_setint_getnone(struct net_device *dev,
 
 	ENTER_DEV(dev);
 
-	hdd_ctx = WLAN_HDD_GET_CTX(pAdapter);
-	ret = wlan_hdd_validate_context(hdd_ctx);
-	if (ret)
-		return -EINVAL;
-
 	sme_config = qdf_mem_malloc(sizeof(*sme_config));
 	if (!sme_config) {
 		hdd_err("failed to allocate memory for sme_config");
 		return -ENOMEM;
 	}
 	qdf_mem_zero(sme_config, sizeof(*sme_config));
+
+	hdd_ctx = WLAN_HDD_GET_CTX(pAdapter);
+	ret = wlan_hdd_validate_context(hdd_ctx);
+	if (0 != ret)
+		goto free;
 
 	switch (sub_cmd) {
 	case WE_SET_11D_STATE:
@@ -8979,8 +8976,7 @@ static int __iw_setnone_getint(struct net_device *dev,
 		if (QDF_STATUS_SUCCESS !=
 		    sme_cfg_get_int(hHal, WNI_CFG_CURRENT_TX_POWER_LEVEL,
 				    &txpow2g)) {
-			ret = -EIO;
-			break;
+			return -EIO;
 		}
 		hdd_debug("2G tx_power %d", txpow2g);
 		break;
@@ -8998,8 +8994,7 @@ static int __iw_setnone_getint(struct net_device *dev,
 		if (QDF_STATUS_SUCCESS !=
 		    sme_cfg_get_int(hHal, WNI_CFG_CURRENT_TX_POWER_LEVEL,
 				    &txpow5g)) {
-			ret = -EIO;
-			break;
+			return -EIO;
 		}
 		hdd_debug("5G tx_power %d", txpow5g);
 		break;

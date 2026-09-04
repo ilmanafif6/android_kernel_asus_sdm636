@@ -132,7 +132,7 @@ static int __init init_zero_pfn(void)
 	zero_pfn = page_to_pfn(ZERO_PAGE(0));
 	return 0;
 }
-early_initcall(init_zero_pfn);
+core_initcall(init_zero_pfn);
 
 
 #if defined(SPLIT_RSS_COUNTING)
@@ -1705,11 +1705,11 @@ static int remap_pte_range(struct mm_struct *mm, pmd_t *pmd,
 			unsigned long addr, unsigned long end,
 			unsigned long pfn, pgprot_t prot)
 {
-	pte_t *pte, *mapped_pte;
+	pte_t *pte;
 	spinlock_t *ptl;
 	int err = 0;
 
-	mapped_pte = pte = pte_alloc_map_lock(mm, pmd, addr, &ptl);
+	pte = pte_alloc_map_lock(mm, pmd, addr, &ptl);
 	if (!pte)
 		return -ENOMEM;
 	arch_enter_lazy_mmu_mode();
@@ -1723,7 +1723,7 @@ static int remap_pte_range(struct mm_struct *mm, pmd_t *pmd,
 		pfn++;
 	} while (pte++, addr += PAGE_SIZE, addr != end);
 	arch_leave_lazy_mmu_mode();
-	pte_unmap_unlock(mapped_pte, ptl);
+	pte_unmap_unlock(pte - 1, ptl);
 	return err;
 }
 
@@ -2897,7 +2897,7 @@ static int do_swap_page(struct mm_struct *mm, struct vm_area_struct *vma,
 unlock:
 	pte_unmap_unlock(page_table, ptl);
 out:
-	return ret;
+	return ret | VM_FAULT_SWAP;
 out_nomap:
 	pte_unmap_unlock(page_table, ptl);
 out_cancel_cgroup:
@@ -2910,7 +2910,7 @@ out_release:
 		unlock_page(swapcache);
 		page_cache_release(swapcache);
 	}
-	return ret;
+	return ret | VM_FAULT_SWAP;
 }
 
 /*
@@ -3448,6 +3448,9 @@ static int do_numa_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	bool was_writable = pte_write(pte);
 	int flags = 0;
 
+	/* A PROT_NONE fault should not end up here */
+	BUG_ON(!(vma->vm_flags & (VM_READ | VM_EXEC | VM_WRITE)));
+
 	/*
 	* The "pte" at this point cannot be used safely without
 	* validation through pte_unmap_same(). It's of NUMA type but
@@ -3539,11 +3542,6 @@ static int wp_huge_pmd(struct mm_struct *mm, struct vm_area_struct *vma,
 	if (vma->vm_ops->pmd_fault)
 		return vma->vm_ops->pmd_fault(vma, address, pmd, flags);
 	return VM_FAULT_FALLBACK;
-}
-
-static inline bool vma_is_accessible(struct vm_area_struct *vma)
-{
-	return vma->vm_flags & (VM_READ | VM_EXEC | VM_WRITE);
 }
 
 /*
@@ -3685,7 +3683,7 @@ static int __handle_mm_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 			if (pmd_trans_splitting(orig_pmd))
 				return 0;
 
-			if (pmd_protnone(orig_pmd) && vma_is_accessible(vma))
+			if (pmd_protnone(orig_pmd))
 				return do_huge_pmd_numa_page(mm, vma, address,
 							     orig_pmd, pmd);
 

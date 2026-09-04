@@ -369,7 +369,7 @@ static int diag_dci_get_buffer(struct diag_dci_client_tbl *client,
 	return -EIO;
 }
 
-void diag_dci_wakeup_clients(void)
+void diag_dci_wakeup_clients()
 {
 	struct list_head *start, *temp;
 	struct diag_dci_client_tbl *entry = NULL;
@@ -3157,7 +3157,6 @@ fail_alloc:
 		kfree(new_entry);
 		new_entry = NULL;
 	}
-	put_task_struct(current);
 	mutex_unlock(&driver->dci_mutex);
 	return DIAG_DCI_NO_REG;
 }

@@ -51,6 +51,8 @@
 #endif
 #include <sync.h>
 #include <sw_sync.h>
+#include <linux/cpu_input_boost.h>
+#include <linux/devfreq_boost.h>
 
 #include "mdss_fb.h"
 #include "mdss_mdp_splash_logo.h"
@@ -96,7 +98,9 @@
 extern int focal_detect_flag;
 #endif
 
+#ifdef CONFIG_MACH_ASUS_X00TD
 static struct wake_lock early_unblank_wakelock;
+#endif
 extern bool lcd_suspend_flag;
 static void asus_lcd_early_unblank_func(struct work_struct *);
 static struct workqueue_struct *asus_lcd_early_unblank_wq;
@@ -123,6 +127,10 @@ static u32 mdss_fb_pseudo_palette[16] = {
 };
 
 static struct msm_mdp_interface *mdp_instance;
+
+#ifdef CONFIG_MACH_ASUS_X01BD
+static struct wake_lock early_unblank_wakelock;
+#endif
 
 static int mdss_fb_register(struct msm_fb_data_type *mfd);
 static int mdss_fb_open(struct fb_info *info, int user);
@@ -563,11 +571,16 @@ static void __mdss_fb_idle_notify_work(struct work_struct *work)
 
 	/* Notify idle-ness here */
 	pr_debug("Idle timeout %dms expired!\n", mfd->idle_time);
-	if (mfd->idle_time)
-		sysfs_notify(&mfd->fbi->dev->kobj, NULL, "idle_notify");
-	mfd->idle_state = MDSS_FB_IDLE;
-}
 
+	mfd->idle_state = MDSS_FB_IDLE;
+	/*
+	 * idle_notify node events are used to reduce MDP load when idle,
+	 * this is not needed for command mode panels.
+	 */
+	if (mfd->idle_time && mfd->panel.type != MIPI_CMD_PANEL)
+		sysfs_notify(&mfd->fbi->dev->kobj, NULL, "idle_notify");
+	sysfs_notify(&mfd->fbi->dev->kobj, NULL, "idle_state");
+}
 
 static ssize_t mdss_fb_get_fps_info(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -627,6 +640,26 @@ static ssize_t mdss_fb_get_idle_notify(struct device *dev,
 		work_busy(&mfd->idle_notify_work.work) ? "no" : "yes");
 
 	return ret;
+}
+
+static ssize_t mdss_fb_get_idle_state(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct fb_info *fbi = dev_get_drvdata(dev);
+	struct msm_fb_data_type *mfd = fbi->par;
+	const char *state_strs[] = {
+		[MDSS_FB_NOT_IDLE] = "active",
+		[MDSS_FB_IDLE_TIMER_RUNNING] = "pending",
+		[MDSS_FB_IDLE] = "idle",
+	};
+	int state = mfd->idle_state;
+	const char *s;
+	if (state < ARRAY_SIZE(state_strs) && state_strs[state])
+		s = state_strs[state];
+	else
+		s = "invalid";
+
+	return scnprintf(buf, PAGE_SIZE, "%s\n", s);
 }
 
 static ssize_t mdss_fb_get_panel_info(struct device *dev,
@@ -965,6 +998,7 @@ static DEVICE_ATTR(show_blank_event, S_IRUGO, mdss_mdp_show_blank_event, NULL);
 static DEVICE_ATTR(idle_time, S_IRUGO | S_IWUSR | S_IWGRP,
 	mdss_fb_get_idle_time, mdss_fb_set_idle_time);
 static DEVICE_ATTR(idle_notify, S_IRUGO, mdss_fb_get_idle_notify, NULL);
+static DEVICE_ATTR(idle_state, S_IRUGO, mdss_fb_get_idle_state, NULL);
 static DEVICE_ATTR(msm_fb_panel_info, S_IRUGO, mdss_fb_get_panel_info, NULL);
 static DEVICE_ATTR(msm_fb_src_split_info, S_IRUGO, mdss_fb_get_src_split_info,
 	NULL);
@@ -986,6 +1020,7 @@ static struct attribute *mdss_fb_attrs[] = {
 	&dev_attr_show_blank_event.attr,
 	&dev_attr_idle_time.attr,
 	&dev_attr_idle_notify.attr,
+	&dev_attr_idle_state.attr,
 	&dev_attr_msm_fb_panel_info.attr,
 	&dev_attr_msm_fb_src_split_info.attr,
 	&dev_attr_msm_fb_thermal_level.attr,
@@ -3266,14 +3301,18 @@ static int __mdss_fb_sync_buf_done_callback(struct notifier_block *p,
 			ret = __mdss_fb_wait_for_fence_sub(sync_pt_data,
 				sync_pt_data->temp_fen, fence_cnt);
 		}
-		if (mfd->idle_time && !mod_delayed_work(system_wq,
+		if (mfd->idle_time) {
+			if (!mod_delayed_work(system_wq,
 					&mfd->idle_notify_work,
 					msecs_to_jiffies(mfd->idle_time)))
-			pr_debug("fb%d: restarted idle work\n",
-					mfd->index);
+				pr_debug("fb%d: restarted idle work\n",
+						mfd->index);
+			mfd->idle_state = MDSS_FB_IDLE_TIMER_RUNNING;
+		} else {
+			mfd->idle_state = MDSS_FB_IDLE;
+		}
 		if (ret == -ETIME)
 			ret = NOTIFY_BAD;
-		mfd->idle_state = MDSS_FB_IDLE_TIMER_RUNNING;
 		break;
 	case MDP_NOTIFY_FRAME_FLUSHED:
 		pr_debug("%s: frame flushed\n", sync_pt_data->fence_name);
@@ -4127,7 +4166,7 @@ static int mdss_fb_set_par(struct fb_info *info)
 {
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
 	struct fb_var_screeninfo *var = &info->var;
-	int old_imgType, old_format, out_format;
+	int old_imgType, new_format;
 	int ret = 0;
 
 	ret = mdss_fb_pan_idle(mfd);
@@ -4210,12 +4249,11 @@ static int mdss_fb_set_par(struct fb_info *info)
 		mfd->fbi->fix.smem_len = PAGE_ALIGN(mfd->fbi->fix.line_length *
 				mfd->fbi->var.yres) * mfd->fb_page;
 
-	old_format = mfd->panel_info->out_format;
-	out_format = mdss_grayscale_to_mdp_format(var->grayscale);
-	if (!IS_ERR_VALUE(out_format)) {
-		mfd->panel_info->out_format = out_format;
-		if (old_format != mfd->panel_info->out_format)
+	new_format = mdss_grayscale_to_mdp_format(var->grayscale);
+	if (!IS_ERR_VALUE(new_format)) {
+		if (new_format != mfd->panel_info->out_format)
 			mfd->panel_reconfig = true;
+		mfd->panel_info->out_format = new_format;
 	}
 
 	if (mdss_fb_is_hdmi_primary(mfd) && mfd->panel_reconfig)
@@ -5203,6 +5241,11 @@ int mdss_fb_do_ioctl(struct fb_info *info, unsigned int cmd,
 		ret = mdss_fb_mode_switch(mfd, dsi_mode);
 		break;
 	case MSMFB_ATOMIC_COMMIT:
+		if (cpu_input_boost_within_input(3000))
+			cpu_input_boost_kick();
+
+		if (df_boost_within_input(3000))
+			devfreq_boost_kick(DEVFREQ_MSM_CPUBW);
 		ret = mdss_fb_atomic_commit_ioctl(info, argp, file);
 		break;
 

@@ -16,6 +16,7 @@
 
 #include <asm/cpufeature.h>
 #include <asm/insn.h>
+#include <asm/opcodes.h>
 #include <asm/sysreg.h>
 #include <asm/system_misc.h>
 #include <asm/traps.h>
@@ -365,10 +366,6 @@ static int emulate_swpX(unsigned int address, unsigned int *data,
 	return res;
 }
 
-#define ARM_OPCODE_CONDTEST_FAIL   0
-#define ARM_OPCODE_CONDTEST_PASS   1
-#define ARM_OPCODE_CONDTEST_UNCOND 2
-
 #define	ARM_OPCODE_CONDITION_UNCOND	0xf
 
 static unsigned int __kprobes aarch32_check_condition(u32 opcode, u32 psr)
@@ -619,7 +616,7 @@ static struct undef_hook setend_hooks[] = {
 	},
 	{
 		/* Thumb mode */
-		.instr_mask	= 0xfffffff7,
+		.instr_mask	= 0x0000fff7,
 		.instr_val	= 0x0000b650,
 		.pstate_mask	= (COMPAT_PSR_T_BIT | COMPAT_PSR_MODE_MASK),
 		.pstate_val	= (COMPAT_PSR_T_BIT | COMPAT_PSR_MODE_USR),

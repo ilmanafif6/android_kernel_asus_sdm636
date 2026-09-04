@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -47,10 +47,6 @@ static unsigned long pressure_min = 50;
 static unsigned long pressure_max = 90;
 module_param_named(pressure_min, pressure_min, ulong, S_IRUGO | S_IWUSR);
 module_param_named(pressure_max, pressure_max, ulong, S_IRUGO | S_IWUSR);
-
-static short min_score_adj = 360;
-module_param_named(min_score_adj, min_score_adj, short,
-	S_IRUGO | S_IWUSR);
 
 /*
  * Scheduling process reclaim workqueue unecessarily
@@ -118,6 +114,7 @@ static void swap_fn(struct work_struct *work)
 	int i;
 	int tasksize;
 	int total_sz = 0;
+	short min_score_adj = 360;
 	int total_scan = 0;
 	int total_reclaimed = 0;
 	int nr_to_reclaim;
@@ -190,10 +187,10 @@ static void swap_fn(struct work_struct *work)
 
 		rp = reclaim_task_anon(selected[si].p, nr_to_reclaim);
 
-		//trace_process_reclaim(selected[si].tasksize,
-		//		selected[si].oom_score_adj, rp.nr_scanned,
-		//		rp.nr_reclaimed, per_swap_size, total_sz,
-		//		nr_to_reclaim);
+		trace_process_reclaim(selected[si].tasksize,
+				selected[si].oom_score_adj, rp.nr_scanned,
+				rp.nr_reclaimed, per_swap_size, total_sz,
+				nr_to_reclaim);
 		total_scan += rp.nr_scanned;
 		total_reclaimed += rp.nr_reclaimed;
 		put_task_struct(selected[si].p);
@@ -213,7 +210,7 @@ static void swap_fn(struct work_struct *work)
 
 		reclaim_avg_efficiency =
 			(efficiency + reclaim_avg_efficiency) / 2;
-		//trace_process_reclaim_eff(efficiency, reclaim_avg_efficiency);
+		trace_process_reclaim_eff(efficiency, reclaim_avg_efficiency);
 	}
 }
 

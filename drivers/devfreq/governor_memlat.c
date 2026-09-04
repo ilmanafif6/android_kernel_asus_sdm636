@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -33,8 +33,6 @@
 
 #include <trace/events/power.h>
 
-extern unsigned int is_cpu_overclocked;
-
 struct memlat_node {
 	unsigned int ratio_ceil;
 	bool mon_started;
@@ -43,6 +41,7 @@ struct memlat_node {
 	struct memlat_hwmon *hw;
 	struct devfreq_governor *gov;
 	struct attribute_group *attr_grp;
+	unsigned long resume_freq;
 };
 
 static LIST_HEAD(memlat_list);
@@ -193,7 +192,8 @@ static int gov_start(struct devfreq *df)
 	node->orig_data = df->data;
 	df->data = node;
 
-	if (start_monitor(df))
+	ret = start_monitor(df);
+	if (ret)
 		goto err_start;
 
 	ret = sysfs_create_group(&df->dev.kobj, node->attr_grp);
@@ -209,6 +209,39 @@ err_start:
 	node->orig_data = NULL;
 	hw->df = NULL;
 	return ret;
+}
+
+static int gov_suspend(struct devfreq *df)
+{
+	struct memlat_node *node = df->data;
+	unsigned long prev_freq = df->previous_freq;
+
+	node->mon_started = false;
+	devfreq_monitor_suspend(df);
+
+	mutex_lock(&df->lock);
+	update_devfreq(df);
+	mutex_unlock(&df->lock);
+
+	node->resume_freq = max(prev_freq, 1UL);
+
+	return 0;
+}
+
+static int gov_resume(struct devfreq *df)
+{
+	struct memlat_node *node = df->data;
+
+	mutex_lock(&df->lock);
+	update_devfreq(df);
+	mutex_unlock(&df->lock);
+
+	node->resume_freq = 0;
+
+	devfreq_monitor_resume(df);
+	node->mon_started = true;
+
+	return 0;
 }
 
 static void gov_stop(struct devfreq *df)
@@ -227,11 +260,23 @@ static int devfreq_memlat_get_freq(struct devfreq *df,
 					unsigned long *freq,
 					u32 *flag)
 {
-	int i, lat_dev = 0;
+	int i, lat_dev;
 	struct memlat_node *node = df->data;
 	struct memlat_hwmon *hw = node->hw;
 	unsigned long max_freq = 0;
 	unsigned int ratio;
+
+	/*
+	 * node->resume_freq is set to 0 at the end of resume (after the update)
+	 * and is set to df->prev_freq at the end of suspend (after the update).
+	 * This function will be called as part of the update_devfreq call in
+	 * both scenarios. As a result, this block will cause a 0 vote during
+	 * suspend and a vote for df->prev_freq during resume.
+	 */
+	if (!node->mon_started) {
+		*freq = node->resume_freq;
+		return 0;
+	}
 
 	hw->get_cnt(hw);
 
@@ -272,7 +317,7 @@ static int devfreq_memlat_get_freq(struct devfreq *df,
 	return 0;
 }
 
-gov_attr(ratio_ceil, 1U, 10000U);
+gov_attr(ratio_ceil, 1U, 20000U);
 
 static struct attribute *dev_attr[] = {
 	&dev_attr_ratio_ceil.attr,
@@ -312,6 +357,30 @@ static int devfreq_memlat_ev_handler(struct devfreq *df,
 		gov_stop(df);
 		dev_dbg(df->dev.parent,
 			"Disabled Memory Latency governor\n");
+		break;
+
+	case DEVFREQ_GOV_SUSPEND:
+		ret = gov_suspend(df);
+		if (ret) {
+			dev_err(df->dev.parent,
+				"Unable to suspend memlat governor (%d)\n",
+				ret);
+			return ret;
+		}
+
+		dev_dbg(df->dev.parent, "Suspended memlat governor\n");
+		break;
+
+	case DEVFREQ_GOV_RESUME:
+		ret = gov_resume(df);
+		if (ret) {
+			dev_err(df->dev.parent,
+				"Unable to resume memlat governor (%d)\n",
+				ret);
+			return ret;
+		}
+
+		dev_dbg(df->dev.parent, "Resumed memlat governor\n");
 		break;
 
 	case DEVFREQ_GOV_INTERVAL:
@@ -391,11 +460,7 @@ int register_memlat(struct device *dev, struct memlat_hwmon *hw)
 	node->ratio_ceil = 10;
 	node->hw = hw;
 
-	if ((is_cpu_overclocked < 1) && of_machine_is_compatible("qcom,sdm636"))
-		hw->freq_map = init_core_dev_map(dev, "qcom,core-dev-table-sts");
-	else
-		hw->freq_map = init_core_dev_map(dev, "qcom,core-dev-table");
-	
+	hw->freq_map = init_core_dev_map(dev, "qcom,core-dev-table");
 	if (!hw->freq_map) {
 		dev_err(dev, "Couldn't find the core-dev freq table!\n");
 		return -EINVAL;

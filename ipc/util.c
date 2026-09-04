@@ -403,7 +403,12 @@ void ipc_rmid(struct ipc_ids *ids, struct kern_ipc_perm *ipcp)
  */
 void *ipc_alloc(int size)
 {
-	return kvmalloc(size, GFP_KERNEL);
+	void *out;
+	if (size > PAGE_SIZE)
+		out = vmalloc(size);
+	else
+		out = kmalloc(size, GFP_KERNEL);
+	return out;
 }
 
 /**
@@ -751,21 +756,21 @@ static struct kern_ipc_perm *sysvipc_find_ipc(struct ipc_ids *ids, loff_t pos,
 			total++;
 	}
 
-	ipc = NULL;
 	if (total >= ids->in_use)
-		goto out;
+		return NULL;
 
 	for (; pos < IPCMNI; pos++) {
 		ipc = idr_find(&ids->ipcs_idr, pos);
 		if (ipc != NULL) {
+			*new_pos = pos + 1;
 			rcu_read_lock();
 			ipc_lock_object(ipc);
-			break;
+			return ipc;
 		}
 	}
-out:
-	*new_pos = pos + 1;
-	return ipc;
+
+	/* Out of range - return NULL to terminate iteration */
+	return NULL;
 }
 
 static void *sysvipc_proc_next(struct seq_file *s, void *it, loff_t *pos)

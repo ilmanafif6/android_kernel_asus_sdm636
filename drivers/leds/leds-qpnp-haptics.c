@@ -29,8 +29,6 @@
 #include <linux/slab.h>
 #include <linux/qpnp-misc.h>
 #include <linux/qpnp/qpnp-revid.h>
-#include <linux/led_vibration.h>
-#include <linux/android_version.h>
 
 /* Register definitions */
 #define HAP_STATUS_1_REG(chip)		(chip->base + 0x0A)
@@ -97,7 +95,7 @@
 #define HAP_VMAX_MIN_MV			116
 #define HAP_VMAX_MAX_MV			3596
 #define HAP_VMAX_MAX_MV_STRONG		3596
-#define HAP_VMAX_MAX_MV_USER		500
+#define HAP_VMAX_MAX_MV_USER		3006
 #define HAP_MIN_TIME_STRONG		100
 #define HAP_MIN_TIME_CALL		1000
 
@@ -1102,15 +1100,6 @@ static int qpnp_haptics_play_mode_config(struct hap_chip *chip)
 	val = chip->play_mode << HAP_WF_SOURCE_SHIFT;
 	rc = qpnp_haptics_masked_write_reg(chip, HAP_SEL_REG(chip),
 			HAP_WF_SOURCE_MASK, val);
-	if (!rc) {
-		if (chip->play_mode == HAP_BUFFER && !chip->play_irq_en) {
-			enable_irq(chip->play_irq);
-			chip->play_irq_en = true;
-		} else if (chip->play_mode != HAP_BUFFER && chip->play_irq_en) {
-			disable_irq(chip->play_irq);
-			chip->play_irq_en = false;
-		}
-	}
 	return rc;
 }
 
@@ -2134,6 +2123,7 @@ static int qpnp_haptics_config(struct hap_chip *chip)
 			return rc;
 		}
 
+		chip->play_irq_en = true;
 		/* use play_irq only for buffer mode */
 		if (chip->play_mode != HAP_BUFFER) {
 			disable_irq(chip->play_irq);
@@ -2738,16 +2728,7 @@ static struct platform_driver qpnp_haptics_driver = {
 	.remove		= qpnp_haptics_remove,
 	.shutdown	= qpnp_haptics_shutdown,
 };
+module_platform_driver(qpnp_haptics_driver);
 
-static int __init led_qpnp_haptics_init(void)
-{
-	/* Vibration Type and Android Version Check */
-	if ((get_android_version() < 11) || (get_led_vibration() < 1))
-		return 0;
-	
-	return platform_driver_register(&qpnp_haptics_driver);
-}
-
-module_init(led_qpnp_haptics_init);
 MODULE_DESCRIPTION("QPNP haptics driver");
 MODULE_LICENSE("GPL v2");

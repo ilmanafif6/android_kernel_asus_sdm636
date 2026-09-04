@@ -14,7 +14,6 @@
  */
 #define DEBUG
 
-#include <linux/android_version.h>
 #include <linux/file.h>
 #include <linux/inetdevice.h>
 #include <linux/module.h>
@@ -1068,6 +1067,18 @@ static struct sock_tag *get_sock_stat_nl(const struct sock *sk)
 	return sock_tag_tree_search(&sock_tag_tree, sk);
 }
 
+static struct sock_tag *get_sock_stat(const struct sock *sk)
+{
+	struct sock_tag *sock_tag_entry;
+	MT_DEBUG("qtaguid: get_sock_stat(sk=%p)\n", sk);
+	if (!sk)
+		return NULL;
+	spin_lock_bh(&sock_tag_list_lock);
+	sock_tag_entry = get_sock_stat_nl(sk);
+	spin_unlock_bh(&sock_tag_list_lock);
+	return sock_tag_entry;
+}
+
 static int ipx_proto(const struct sk_buff *skb,
 		     struct xt_action_param *par)
 {
@@ -1299,15 +1310,12 @@ static void if_tag_stat_update(const char *ifname, uid_t uid,
 	 * Look for a tagged sock.
 	 * It will have an acct_uid.
 	 */
-	spin_lock_bh(&sock_tag_list_lock);
-	sock_tag_entry = sk ? get_sock_stat_nl(sk) : NULL;
+	sock_tag_entry = get_sock_stat(sk);
 	if (sock_tag_entry) {
 		tag = sock_tag_entry->tag;
 		acct_tag = get_atag_from_tag(tag);
 		uid_tag = get_utag_from_tag(tag);
-	}
-	spin_unlock_bh(&sock_tag_list_lock);
-	if (!sock_tag_entry) {
+	} else {
 		acct_tag = make_atag_from_value(0);
 		tag = combine_atag_with_uid(acct_tag, uid);
 		uid_tag = make_tag_from_uid(uid);
@@ -2988,16 +2996,12 @@ static struct xt_match qtaguid_mt_reg __read_mostly = {
 
 static int __init qtaguid_mt_init(void)
 {
-	/* Android 11 and older uses the custom "qtaguid" module instead */
-	if (get_android_version() > 11)
-		return 0;
-	else if (qtaguid_proc_register(&xt_qtaguid_procdir)
+	if (qtaguid_proc_register(&xt_qtaguid_procdir)
 	    || iface_stat_init(xt_qtaguid_procdir)
 	    || xt_register_match(&qtaguid_mt_reg)
 	    || misc_register(&qtu_device))
 		return -1;
-	else
-		return 0;
+	return 0;
 }
 
 /*

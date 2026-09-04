@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -270,7 +270,6 @@ typedef struct sLimMlmAssocInd {
 
 	tDot11fIEHTCaps HTCaps;
 	tDot11fIEVHTCaps VHTCaps;
-	bool is_sae_authenticated;
 } tLimMlmAssocInd, *tpLimMlmAssocInd;
 
 typedef struct sLimMlmReassocReq {
@@ -598,7 +597,7 @@ tSirRetStatus lim_send_link_report_action_frame(tpAniSirGlobal, tpSirMacLinkRepo
  * @pMac: pointer to global MAC context
  * @dialog_token: Dialog token to be used in the action frame
  * @num_report: number of reports in pRRMReport
- * @is_last_frame: is the current report last or more reports to follow
+ * @last_beacon_report_params: Last Beacon Report indication params
  * @pRRMReport: Pointer to the RRM report structure
  * @peer: MAC address of the peer
  * @psessionEntry: Pointer to the PE session entry
@@ -609,7 +608,8 @@ tSirRetStatus
 lim_send_radio_measure_report_action_frame(tpAniSirGlobal pMac,
 				uint8_t dialog_token,
 				uint8_t num_report,
-				bool is_last_frame,
+				struct rrm_beacon_report_last_beacon_params
+				*last_beacon_report_params,
 				tpSirMacRadioMeasureReport pRRMReport,
 				tSirMacAddr peer,
 				tpPESession psessionEntry);
@@ -890,15 +890,20 @@ lim_get_ielen_from_bss_description(tpSirBssDescription pBssDescr)
 } /*** end lim_get_ielen_from_bss_description() ***/
 
 /**
- * lim_send_beacon_ind() - send the beacon indication
- * @mac_ctx: pointer to mac structure
- * @session: pe session
- * @reason: beacon update reason
+ * lim_send_beacon_ind()
  *
- * return: success: QDF_STATUS_SUCCESS failure: QDF_STATUS_E_FAILURE
+ ***FUNCTION:
+ * This function is called  to send the beacon indication
+ * number being scanned.
+ *
+ ***PARAMS:
+ *
+ ***LOGIC:
+ *
+ ***ASSUMPTIONS:
  */
-QDF_STATUS lim_send_beacon_ind(tpAniSirGlobal mac_ctx, tpPESession session,
-			       enum sir_bcn_update_reason reason);
+
+void lim_send_beacon_ind(tpAniSirGlobal pMac, tpPESession psessionEntry);
 
 void
 lim_send_vdev_restart(tpAniSirGlobal pMac, tpPESession psessionEntry,
@@ -918,23 +923,11 @@ void
 lim_change_channel_with_callback(tpAniSirGlobal pMac, uint8_t newChannel,
 				 CHANGE_CHANNEL_CALLBACK callback,
 				 uint32_t *cbdata, tpPESession psessionEntry);
-/*
- * lim_send_sme_mgmt_frame_ind() - Function to send mgmt frame ind to HDD
- * @mac_ctx: Pointer to Global MAC structure
- * @frame_type: Type of mgmt frame
- * @frame: Frame pointer
- * @frame_len: Length og mgmt frame
- * @session_id: session id
- * @rx_chan: Channel of where packet is received
- * @psession_entry: PE Session Entry
- * @rx_rssi: rssi value
- * @rx_flags: RXMGMT flags to be set for the frame. Defined in enum rxmgmt_flags
- */
-void lim_send_sme_mgmt_frame_ind(tpAniSirGlobal mac_ctx, uint8_t frame_type,
-				 uint8_t *frame, uint32_t frame_len,
-				 uint16_t session_id, uint32_t rx_chan,
-				 tpPESession psession_entry,
-				 int8_t rx_rssi, enum rxmgmt_flags rx_flags);
+
+void lim_send_sme_mgmt_frame_ind(tpAniSirGlobal pMac, uint8_t frameType,
+				 uint8_t *frame, uint32_t frameLen,
+				 uint16_t sessionId, uint32_t rxChan,
+				 tpPESession psessionEntry, int8_t rxRssi);
 void lim_process_remain_on_chn_timeout(tpAniSirGlobal pMac);
 void lim_process_insert_single_shot_noa_timeout(tpAniSirGlobal pMac);
 void lim_convert_active_channel_to_passive_channel(tpAniSirGlobal pMac);
@@ -973,15 +966,6 @@ tSirRetStatus lim_process_sme_del_all_tdls_peers(tpAniSirGlobal p_mac,
 	return eSIR_SUCCESS;
 }
 #endif
-
-/**
- * lim_send_bcn_rsp() - handle beacon send response
- * @mac_ctx Pointer to Global MAC structure
- * @rsp: beacon send response
- *
- * Return: None
- */
-void lim_send_bcn_rsp(tpAniSirGlobal mac_ctx, tpSendbeaconParams rsp);
 
 /**
  * lim_process_rx_channel_status_event() - processes
@@ -1054,61 +1038,4 @@ void lim_process_assoc_failure_timeout(tpAniSirGlobal mac_ctx,
 void lim_send_mgmt_frame_tx(tpAniSirGlobal mac_ctx,
 		uint32_t *msg_buf);
 
-/**
- * lim_p2p_check_oui_and_force_1x1() - Function to get P2P client device
- * attributes from assoc request frame IE passed in.
- * @mac_ctx: Pointer to mac_context
- * @assoc_ie: Pointer to IE in association request
- * @assoc_ie_len: Total association IE length
- *
- * Return: True if OUI is found. Else return false
- *
- */
-bool lim_p2p_check_oui_and_force_1x1(tpAniSirGlobal mac_ctx,
-				     uint8_t *assoc_ie, uint32_t assoc_ie_len);
-
-/**
- * lim_process_assoc_cleanup() - frees up resources used in function
- *                               lim_process_assoc_req_frame()
- * @mac_ctx: pointer to Global MAC structure
- * @session: pointer to pe session entry
- * @assoc_req: pointer to ASSOC/REASSOC Request frame
- * @sta_ds: station dph entry
- * @assoc_req_copied: boolean to indicate if assoc req was copied to tmp above
- *
- * Frees up resources used in function lim_process_assoc_req_frame
- *
- * Return: void
- */
-void lim_process_assoc_cleanup(tpAniSirGlobal mac_ctx,
-			       tpPESession session,
-			       tpSirAssocReq assoc_req,
-			       tpDphHashNode sta_ds,
-			       bool assoc_req_copied);
-
-/**
- * lim_send_assoc_ind_to_sme() - Initialize PE data structures and send assoc
- *				 indication to SME.
- * @mac_ctx: Pointer to Global MAC structure
- * @session: pe session entry
- * @sub_type: Indicates whether it is Association Request(=0) or Reassociation
- *            Request(=1) frame
- * @hdr: A pointer to the MAC header
- * @assoc_req: pointer to ASSOC/REASSOC Request frame
- * @pmf_connection: flag indicating pmf connection
- * @assoc_req_copied: boolean to indicate if assoc req was copied to tmp above
- * @dup_entry: flag indicating if duplicate entry found
- * @force_1x1: flag to indicate if the STA nss needs to be downgraded to 1x1
- *
- * Return: true on success, and false otherwise
- */
-bool lim_send_assoc_ind_to_sme(tpAniSirGlobal mac_ctx,
-			       tpPESession session,
-			       uint8_t sub_type,
-			       tpSirMacMgmtHdr hdr,
-			       tpSirAssocReq assoc_req,
-			       bool pmf_connection,
-			       bool *assoc_req_copied,
-			       bool dup_entry,
-			       bool force_1x1);
 #endif /* __LIM_TYPES_H */

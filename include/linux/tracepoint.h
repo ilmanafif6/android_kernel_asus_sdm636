@@ -173,8 +173,8 @@ extern void syscall_unregfunc(void);
 				TP_PROTO(data_proto),			\
 				TP_ARGS(data_args),			\
 				TP_CONDITION(cond),			\
-				rcu_irq_enter(),			\
-				rcu_irq_exit());			\
+				rcu_irq_enter_irqson(),			\
+				rcu_irq_exit_irqson());			\
 	}
 #else
 #define __DECLARE_TRACE_RCU(name, proto, args, cond, data_proto, data_args)
@@ -328,7 +328,7 @@ extern void syscall_unregfunc(void);
 		static const char *___tp_str __tracepoint_string = str; \
 		___tp_str;						\
 	})
-#define __tracepoint_string	__attribute__((section("__tracepoint_str"), used))
+#define __tracepoint_string	__attribute__((section("__tracepoint_str")))
 #else
 /*
  * tracepoint_string() is used to save the string address for userspace

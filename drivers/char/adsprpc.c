@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -298,7 +298,6 @@ struct fastrpc_mmap {
 	int uncached;
 	int secure;
 	uintptr_t attr;
-	bool is_filemap; /*flag to indicate map used in process init*/
 };
 
 struct fastrpc_perf {
@@ -558,10 +557,9 @@ static int fastrpc_mmap_remove(struct fastrpc_file *fl, uintptr_t va,
 
 	spin_lock(&me->hlock);
 	hlist_for_each_entry_safe(map, n, &me->maps, hn) {
-		if (map->refs == 1 && map->raddr == va &&
+		if (map->raddr == va &&
 			map->raddr + map->len == va + len &&
-			/*Remove map if not used in process initialization*/
-			!map->is_filemap) {
+			map->refs == 1) {
 			match = map;
 			hlist_del_init(&map->hn);
 			break;
@@ -574,10 +572,9 @@ static int fastrpc_mmap_remove(struct fastrpc_file *fl, uintptr_t va,
 	}
 	spin_lock(&fl->hlock);
 	hlist_for_each_entry_safe(map, n, &fl->maps, hn) {
-		if (map->refs == 1 && map->raddr == va &&
+		if (map->raddr == va &&
 			map->raddr + map->len == va + len &&
-			/*Remove map if not used in process initialization*/
-			!map->is_filemap) {
+			map->refs == 1) {
 			match = map;
 			hlist_del_init(&map->hn);
 			break;
@@ -715,7 +712,6 @@ static int fastrpc_mmap_create(struct fastrpc_file *fl, int fd, unsigned attr,
 	map->fl = fl;
 	map->fd = fd;
 	map->attr = attr;
-	map->is_filemap = false;
 	if (mflags == ADSP_MMAP_HEAP_ADDR ||
 				mflags == ADSP_MMAP_REMOTE_HEAP_ADDR) {
 		DEFINE_DMA_ATTRS(rh_attrs);
@@ -1905,8 +1901,6 @@ static int fastrpc_init_process(struct fastrpc_file *fl,
 		if (init->filelen) {
 			VERIFY(err, !fastrpc_mmap_create(fl, init->filefd, 0,
 				init->file, init->filelen, mflags, &file));
-			if (file)
-				file->is_filemap = true;
 			if (err)
 				goto bail;
 		}
@@ -2335,13 +2329,11 @@ static int fastrpc_internal_munmap(struct fastrpc_file *fl,
 	VERIFY(err, !fastrpc_mmap_remove(fl, ud->vaddrout, ud->size, &map));
 	if (err)
 		goto bail;
-	if (map) {
-		VERIFY(err, !fastrpc_munmap_on_dsp(fl, map->raddr,
-					map->phys, map->size, map->flags));
-		if (err)
-			goto bail;
-		fastrpc_mmap_free(map);
-	}
+	VERIFY(err, !fastrpc_munmap_on_dsp(fl, map->raddr,
+				map->phys, map->size, map->flags));
+	if (err)
+		goto bail;
+	fastrpc_mmap_free(map);
 bail:
 	if (err && map)
 		fastrpc_mmap_add(map);
@@ -3314,6 +3306,10 @@ static long fastrpc_device_ioctl(struct file *file, unsigned int ioctl_num,
 		if (!size)
 			size = sizeof(struct fastrpc_ioctl_init_attrs);
 		K_COPY_FROM_USER(err, 0, &p.init, param, size);
+		if (err)
+			goto bail;
+		VERIFY(err, p.init.init.filelen >= 0 &&
+			p.init.init.memlen >= 0);
 		if (err)
 			goto bail;
 		VERIFY(err, p.init.init.filelen >= 0 &&

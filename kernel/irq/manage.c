@@ -9,6 +9,7 @@
 
 #define pr_fmt(fmt) "genirq: " fmt
 
+#include <linux/cpu.h>
 #include <linux/irq.h>
 #include <linux/kthread.h>
 #include <linux/module.h>
@@ -20,6 +21,16 @@
 #include <linux/task_work.h>
 
 #include "internals.h"
+
+struct irq_desc_list {
+	struct list_head list;
+	struct irq_desc *desc;
+} perf_crit_irqs = {
+	.list = LIST_HEAD_INIT(perf_crit_irqs.list)
+};
+
+static DEFINE_RAW_SPINLOCK(perf_irqs_lock);
+static int perf_cpu_index = -1;
 
 #ifdef CONFIG_IRQ_FORCED_THREADING
 __read_mostly bool force_irqthreads;
@@ -203,6 +214,8 @@ int irq_do_set_affinity(struct irq_data *data, const struct cpumask *mask,
 	struct irq_chip *chip = irq_data_get_irq_chip(data);
 	int ret;
 
+	/* IRQs only run on the first CPU in the affinity mask; reflect that */
+	mask = cpumask_of(cpumask_first(mask));
 	ret = chip->irq_set_affinity(data, mask, force);
 	switch (ret) {
 	case IRQ_SET_MASK_OK:
@@ -235,11 +248,7 @@ int irq_set_affinity_locked(struct irq_data *data, const struct cpumask *mask,
 
 	if (desc->affinity_notify) {
 		kref_get(&desc->affinity_notify->kref);
-		if (!schedule_work(&desc->affinity_notify->work)) {
-			/* Work was already scheduled, drop our extra ref */
-			kref_put(&desc->affinity_notify->kref,
-				 desc->affinity_notify->release);
-		}
+		schedule_work(&desc->affinity_notify->work);
 	}
 	irqd_set(data, IRQD_AFFINITY_SET);
 
@@ -339,10 +348,7 @@ irq_set_affinity_notifier(unsigned int irq, struct irq_affinity_notify *notify)
 	raw_spin_unlock_irqrestore(&desc->lock, flags);
 
 	if (old_notify) {
-		if (cancel_work_sync(&old_notify->work)) {
-			/* Pending work had a ref, put that one too */
-			kref_put(&old_notify->kref, old_notify->release);
-		}
+		cancel_work_sync(&old_notify->work);
 		kref_put(&old_notify->kref, old_notify->release);
 	}
 
@@ -887,15 +893,11 @@ irq_forced_thread_fn(struct irq_desc *desc, struct irqaction *action)
 	irqreturn_t ret;
 
 	local_bh_disable();
-	if (!IS_ENABLED(CONFIG_PREEMPT_RT_BASE))
-		local_irq_disable();
 	ret = action->thread_fn(action->irq, action->dev_id);
 	if (ret == IRQ_HANDLED)
 		atomic_inc(&desc->threads_handled);
 
 	irq_finalize_oneshot(desc, action);
-	if (!IS_ENABLED(CONFIG_PREEMPT_RT_BASE))
-		local_irq_enable();
 	local_bh_enable();
 	return ret;
 }
@@ -1135,6 +1137,112 @@ setup_irq_thread(struct irqaction *new, unsigned int irq, bool secondary)
 	return 0;
 }
 
+static void add_desc_to_perf_list(struct irq_desc *desc)
+{
+	struct irq_desc_list *item;
+
+	item = kmalloc(sizeof(*item), GFP_ATOMIC | __GFP_NOFAIL);
+	item->desc = desc;
+
+	raw_spin_lock(&perf_irqs_lock);
+	list_add(&item->list, &perf_crit_irqs.list);
+	raw_spin_unlock(&perf_irqs_lock);
+}
+
+static void affine_one_perf_thread(struct task_struct *t)
+{
+	t->pf_flags |= PF_PERF_CRITICAL;
+	set_cpus_allowed_ptr(t, cpu_perf_mask);
+}
+
+static void unaffine_one_perf_thread(struct task_struct *t)
+{
+	t->pf_flags &= ~PF_PERF_CRITICAL;
+	set_cpus_allowed_ptr(t, cpu_all_mask);
+}
+
+static void affine_one_perf_irq(struct irq_desc *desc)
+{
+	int cpu;
+
+	/* Balance the performance-critical IRQs across all perf CPUs */
+	while (1) {
+		cpu = cpumask_next_and(perf_cpu_index, cpu_perf_mask,
+				       cpu_online_mask);
+		if (cpu < nr_cpu_ids)
+			break;
+		perf_cpu_index = -1;
+	}
+	irq_set_affinity_locked(&desc->irq_data, cpumask_of(cpu), true);
+
+	perf_cpu_index = cpu;
+}
+
+static void setup_perf_irq_locked(struct irq_desc *desc)
+{
+	add_desc_to_perf_list(desc);
+	irqd_set(&desc->irq_data, IRQD_AFFINITY_MANAGED);
+	raw_spin_lock(&perf_irqs_lock);
+	affine_one_perf_irq(desc);
+	raw_spin_unlock(&perf_irqs_lock);
+}
+
+void irq_set_perf_affinity(unsigned int irq)
+{
+	struct irq_desc *desc = irq_to_desc(irq);
+	struct irqaction *action;
+	unsigned long flags;
+
+	if (!desc)
+		return;
+
+	raw_spin_lock_irqsave(&desc->lock, flags);
+	action = desc->action;
+	while (action) {
+		action->flags |= IRQF_PERF_CRITICAL;
+		action = action->next;
+	}
+	setup_perf_irq_locked(desc);
+	raw_spin_unlock_irqrestore(&desc->lock, flags);
+}
+
+void unaffine_perf_irqs(void)
+{
+	struct irq_desc_list *data;
+	unsigned long flags;
+
+	raw_spin_lock_irqsave(&perf_irqs_lock, flags);
+	list_for_each_entry(data, &perf_crit_irqs.list, list) {
+		struct irq_desc *desc = data->desc;
+
+		raw_spin_lock(&desc->lock);
+		irq_set_affinity_locked(&desc->irq_data, cpu_all_mask, true);
+		if (desc->action->thread)
+			unaffine_one_perf_thread(desc->action->thread);
+		raw_spin_unlock(&desc->lock);
+	}
+	perf_cpu_index = -1;
+	raw_spin_unlock_irqrestore(&perf_irqs_lock, flags);
+}
+
+void reaffine_perf_irqs(void)
+{
+	struct irq_desc_list *data;
+	unsigned long flags;
+
+	raw_spin_lock_irqsave(&perf_irqs_lock, flags);
+	list_for_each_entry(data, &perf_crit_irqs.list, list) {
+		struct irq_desc *desc = data->desc;
+
+		raw_spin_lock(&desc->lock);
+		affine_one_perf_irq(desc);
+		if (desc->action->thread)
+			affine_one_perf_thread(desc->action->thread);
+		raw_spin_unlock(&desc->lock);
+	}
+	raw_spin_unlock_irqrestore(&perf_irqs_lock, flags);
+}
+
 /*
  * Internal function to register an irqaction - typically used to
  * allocate special interrupts that are part of the architecture.
@@ -1195,6 +1303,8 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 			if (ret)
 				goto out_thread;
 		}
+		if (new->flags & IRQF_PERF_CRITICAL)
+			affine_one_perf_thread(new->thread);
 	}
 
 	if (!alloc_cpumask_var(&mask, GFP_KERNEL)) {
@@ -1357,7 +1467,10 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 		}
 
 		/* Set default affinity mask once everything is setup */
-		setup_affinity(desc, mask);
+		if (new->flags & IRQF_PERF_CRITICAL)
+			setup_perf_irq_locked(desc);
+		else
+			setup_affinity(desc, mask);
 
 	} else if (new->flags & IRQF_TRIGGER_MASK) {
 		unsigned int nmsk = new->flags & IRQF_TRIGGER_MASK;
@@ -1496,6 +1609,20 @@ static struct irqaction *__free_irq(unsigned int irq, void *dev_id)
 		if (action->dev_id == dev_id)
 			break;
 		action_ptr = &action->next;
+	}
+
+	if (action->flags & IRQF_PERF_CRITICAL) {
+		struct irq_desc_list *data;
+
+		raw_spin_lock(&perf_irqs_lock);
+		list_for_each_entry(data, &perf_crit_irqs.list, list) {
+			if (data->desc == desc) {
+				list_del(&data->list);
+				kfree(data);
+				break;
+			}
+		}
+		raw_spin_unlock(&perf_irqs_lock);
 	}
 
 	/* Found it - now remove it from the list of entries: */
