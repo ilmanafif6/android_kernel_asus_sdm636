@@ -400,12 +400,15 @@ fi
 # Salin kernel image ke AnyKernel3
 cp -f "${IMAGE_GZ_DTB}" "${ANYKERNEL_DIR}/Image.gz-dtb"
 
-# Salin ksud daemon ke AnyKernel3 tools
-if [ -f "${ROOT_DIR}/anykernel/tools/ksud" ]; then
+# Salin ksud daemon ke AnyKernel3 tools jika belum ada
+if [ -f "${ANYKERNEL_DIR}/tools/ksud" ]; then
+    chmod 755 "${ANYKERNEL_DIR}/tools/ksud"
+elif [ -f "${ROOT_DIR}/anykernel/tools/ksud" ]; then
     mkdir -p "${ANYKERNEL_DIR}/tools"
     cp -f "${ROOT_DIR}/anykernel/tools/ksud" "${ANYKERNEL_DIR}/tools/ksud"
     chmod 755 "${ANYKERNEL_DIR}/tools/ksud"
 fi
+
 
 # Masuk ke AnyKernel dan buat file zip
 cd "${ANYKERNEL_DIR}"
