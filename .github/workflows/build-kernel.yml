@@ -1,0 +1,140 @@
+name: Build Asus X00TD Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_branch:
+        description: 'Branch kernel yang ingin di-build'
+        required: true
+        default: 'HMP'
+        type: choice
+        options:
+          - HMP
+      toolchain:
+        description: 'Pilihan compiler Clang'
+        required: true
+        default: 'trb'
+        type: choice
+        options:
+          - trb
+      create_release:
+        description: 'Buat GitHub Release otomatis?'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build-kernel:
+    name: Compile Kernel for X00TD
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Environment & Timezone
+        run: |
+          sudo ln -sf /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
+          echo "BUILD_DATE=$(date +'%Y-%m-%d %H:%M WIB')" >> $GITHUB_ENV
+          echo "KBUILD_BUILD_USER=ilmanafif6" >> $GITHUB_ENV
+          echo "KBUILD_BUILD_HOST=linux" >> $GITHUB_ENV
+          date
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            bc \
+            bison \
+            flex \
+            libssl-dev \
+            libelf-dev \
+            libncurses-dev \
+            git \
+            curl \
+            wget \
+            zip \
+            unzip \
+            cpio \
+            python3 \
+            python-is-python3 \
+            make \
+            tar \
+            gzip \
+            ca-certificates \
+            libtinfo6
+          sudo apt-get install -y libtinfo5 2>/dev/null || true
+
+      - name: Configure Toolchain and Branch
+        run: |
+          KERNEL_BRANCH="${{ github.event.inputs.kernel_branch || 'HMP' }}"
+          TOOLCHAIN_TYPE="${{ github.event.inputs.toolchain || 'trb' }}"
+          
+          echo "KERNEL_BRANCH=${KERNEL_BRANCH}" >> $GITHUB_ENV
+          
+          if [ "${TOOLCHAIN_TYPE}" = "trb" ]; then
+            echo "CLANG_REPO=https://gitlab.com/varunhardgamer/trb_clang.git" >> $GITHUB_ENV
+            echo "CLANG_BRANCH=17" >> $GITHUB_ENV
+          else
+            echo "CLANG_REPO=https://github.com/kdrag0n/proton-clang.git" >> $GITHUB_ENV
+            echo "CLANG_BRANCH=master" >> $GITHUB_ENV
+          fi
+
+      - name: Run Kernel Build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Find Output ZIP
+        id: find-zip
+        run: |
+          ZIP_FILE=$(ls -1 AlphaCore-*.zip *.zip 2>/dev/null | head -n 1)
+          if [ -n "$ZIP_FILE" ] && [ -f "$ZIP_FILE" ]; then
+            echo "zip_path=$ZIP_FILE" >> $GITHUB_OUTPUT
+            echo "zip_name=$(basename $ZIP_FILE)" >> $GITHUB_OUTPUT
+            echo "MD5 Checksum: $(md5sum $ZIP_FILE | cut -d' ' -f1)"
+          else
+            echo "File zip tidak ditemukan!"
+            exit 1
+          fi
+
+      - name: Upload Kernel Artifact & Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.find-zip.outputs.zip_name || 'build-log' }}
+          path: |
+            *.zip
+            build.log
+          retention-days: 14
+
+      - name: Create GitHub Release
+        if: ${{ github.event.inputs.create_release == 'true' || github.event.inputs.create_release == '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "AlphaCore Kernel X00TD (${{ env.KERNEL_BRANCH }}) - ${{ env.BUILD_DATE }}"
+          tag_name: "release-${{ env.KERNEL_BRANCH }}-${{ github.run_number }}"
+          body: |
+            ### 📱 AlphaCore Kernel for Asus ZenFone Max Pro M1 (X00TD)
+            - **Kernel Name**: AlphaCore Kernel (HMP)
+            - **Maintainer**: ilmanafif6
+            - **Source**: [ilmanafif6/android_kernel_asus_sdm636](https://github.com/ilmanafif6/android_kernel_asus_sdm636)
+            - **Branch**: `${{ env.KERNEL_BRANCH }}`
+            - **Defconfig**: `vendor/asus/X00TD_defconfig`
+            - **Root Solution**: KernelSU-Next dev + SuSFS v2.3.0
+            - **Compiler**: `${{ env.CLANG_REPO }}`
+            - **File Output**: `${{ steps.find-zip.outputs.zip_name }}`
+            - **Build Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            
+            ⚡ **Instalasi**: Flash file zip melalui custom recovery (TWRP / OrangeFox).
+          files: |
+            ${{ steps.find-zip.outputs.zip_path }}
+            build.log
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
