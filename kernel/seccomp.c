@@ -691,6 +691,20 @@ int __secure_computing(const struct seccomp_data *sd)
 	this_syscall = sd ? sd->nr :
 		syscall_get_nr(current, task_pt_regs(current));
 
+	/* Allow KernelSU supercall (__NR_reboot with 0xdeadbeef) without triggering seccomp SIGSYS */
+	if (this_syscall == 142 || this_syscall == 88) {
+		unsigned long magic1 = sd ? sd->args[0] : 0;
+#ifdef CONFIG_ARM64
+		if (!sd) {
+			struct pt_regs *regs = task_pt_regs(current);
+			if (regs)
+				magic1 = regs->regs[0];
+		}
+#endif
+		if (magic1 == 0xdeadbeef || magic1 == 0x114514)
+			return 0;
+	}
+
 	switch (mode) {
 	case SECCOMP_MODE_STRICT:
 		__secure_computing_strict(this_syscall);  /* may call do_exit */

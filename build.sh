@@ -109,23 +109,41 @@ sed -i '1s/^/#include <linux\/version.h>\n/' ReSukiSU/kernel/include/ksu.h
 
 # Multi-Manager signature fallback agar SEMUA manager (resukisu, sukisu, ksu official, kowsu, backslash ksu, mksu, rksu, mambosu, kamisu, vortexsu, agnessu, kittisu) diizinkan secara otomatis
 python3 << 'EOF'
+# 1. Patch apk_sign.c: izinkan semua signature termasuk v1 dan v3 (untuk spoofed/re-signed manager)
 with open('ReSukiSU/kernel/manager/apk_sign.c', 'r') as f:
     content = f.read()
 
-target = "if (!signature_valid && ksu_is_dynamic_manager_enabled()) {"
-replacement = """    if (!signature_valid) {
+target1 = "if (!signature_valid && ksu_is_dynamic_manager_enabled()) {"
+if target1 in content:
+    content = content.replace(target1, """    if (!signature_valid) {
         if (matched_index)
             *matched_index = 0;
         signature_valid = true;
     }
-    if (!signature_valid && ksu_is_dynamic_manager_enabled()) {"""
+    if (!signature_valid && ksu_is_dynamic_manager_enabled()) {""", 1)
 
-if target in content:
-    content = content.replace(target, replacement, 1)
-    with open('ReSukiSU/kernel/manager/apk_sign.c', 'w') as f:
-        f.write(content)
+target_v1 = """        int has_v1_signing = has_v1_signature_file(fp);
+        if (has_v1_signing) {
+            pr_err("Unexpected v1 signature scheme found!\\n");
+            goto invalid;
+        }"""
+if target_v1 in content:
+    content = content.replace(target_v1, """        int has_v1_signing = has_v1_signature_file(fp);
+        if (has_v1_signing) {
+            pr_info("Found v1 signature scheme (allowed for manager)\\n");
+        }""")
 
-# 1. Patch manager.c: picu track_throne jika belum ada manager terdaftar
+target_v3 = """    if (v2_signing_valid && (v3_signing_exist || v3_1_signing_exist)) {
+        pr_err("Unexpected v3 signature scheme found!\\n");
+        return false;
+    }"""
+if target_v3 in content:
+    content = content.replace(target_v3, "/* allow v3 for spoofed manager */")
+
+with open('ReSukiSU/kernel/manager/apk_sign.c', 'w') as f:
+    f.write(content)
+
+# 2. Patch manager.c: picu track_throne jika belum ada manager terdaftar
 with open('ReSukiSU/kernel/manager/manager.c', 'r') as f:
     content = f.read()
 
@@ -147,7 +165,7 @@ content = content.replace(target, replacement, 1)
 with open('ReSukiSU/kernel/manager/manager.c', 'w') as f:
     f.write(content)
 
-# 2. Patch perm.c: picu track_throne jika allowed_for_su dipanggil sebelum manager terdaftar
+# 3. Patch perm.c: picu track_throne jika allowed_for_su dipanggil sebelum manager terdaftar
 with open('ReSukiSU/kernel/supercall/perm.c', 'r') as f:
     content = f.read()
 
@@ -156,20 +174,62 @@ replacement_inc = '#include "manager/manager_identity.h"\n#include "manager/thro
 if target_inc in content and '#include "manager/throne_tracker.h"' not in content:
     content = content.replace(target_inc, replacement_inc, 1)
 
-target = "bool allowed_for_su(void)\n{\n    return is_manager() || ksu_is_allow_uid_for_current(current_uid().val);\n}"
-replacement = """bool allowed_for_su(void)
+target_allowed = """bool allowed_for_su(void)
+{
+    bool is_allowed = is_manager() || ksu_is_allow_uid_for_current(ksu_get_uid_t(current_uid()));
+
+    return is_allowed;
+}"""
+replacement_allowed = """bool allowed_for_su(void)
 {
     if (unlikely(!is_manager())) {
         track_throne(TRACK_THRONE_FORCE_SEARCH_MGR | TRACK_THRONE_FORCE_SYNCHRONOUS);
     }
-    return is_manager() || ksu_is_allow_uid_for_current(current_uid().val);
+    return is_manager() || ksu_is_allow_uid_for_current(ksu_get_uid_t(current_uid()));
 }"""
-content = content.replace(target, replacement, 1)
+content = content.replace(target_allowed, replacement_allowed, 1)
 
 with open('ReSukiSU/kernel/supercall/perm.c', 'w') as f:
     f.write(content)
 
-# 3. Patch throne_tracker.c: pastikan do_track_throne menggunakan root creds (override_creds)
+# 4. Patch supercall.c: auto-crown & disable seccomp saat manager memanggil reboot supercall
+with open('ReSukiSU/kernel/supercall/supercall.c', 'r') as f:
+    content = f.read()
+
+target_hdr = '#include "supercall/internal.h"'
+replacement_hdr = """#include "supercall/internal.h"
+#include "manager/manager_identity.h"
+#include "runtime/ksud.h"
+extern void disable_seccomp(void);
+extern void ksu_clear_current_proc_unprivillege(void);"""
+if target_hdr in content and 'disable_seccomp' not in content:
+    content = content.replace(target_hdr, replacement_hdr, 1)
+
+target_reboot = """    // Check if this is a request to install KSU fd
+    if (magic2 == KSU_INSTALL_MAGIC2) {
+        ksu_install_fd_to_user((int __user *)*arg);
+        return 0;
+    }"""
+replacement_reboot = """    // Check if this is a request to install KSU fd
+    if (magic2 == KSU_INSTALL_MAGIC2) {
+        uid_t uid = ksu_get_uid_t(current_uid());
+        disable_seccomp();
+        ksu_clear_current_proc_unprivillege();
+        if (!ksu_has_manager() || !ksu_is_manager_uid(uid)) {
+            pr_info("ksu: auto-crowning manager via sys_reboot: uid=%d\\n", uid);
+            ksu_register_manager(uid, 0);
+            ksu_mark_manager(uid);
+            ksu_set_ksud_status(uid);
+        }
+        ksu_install_fd_to_user((int __user *)*arg);
+        return 0;
+    }"""
+content = content.replace(target_reboot, replacement_reboot, 1)
+
+with open('ReSukiSU/kernel/supercall/supercall.c', 'w') as f:
+    f.write(content)
+
+# 5. Patch throne_tracker.c: pastikan do_track_throne menggunakan root creds & mendukung DT_UNKNOWN dan auto match
 with open('ReSukiSU/kernel/manager/throne_tracker.c', 'r') as f:
     content = f.read()
 
@@ -194,10 +254,32 @@ replacement_end = """    if (diff_map)
 }"""
 content = content.replace(target_end, replacement_end, 1)
 
+# my_actor: handle DT_UNKNOWN for Linux 4.4 filesystems
+target_actor_dir = "    if (d_type == DT_DIR && my_ctx->depth > 0) {"
+replacement_actor_dir = "    if ((d_type == DT_DIR || d_type == DT_UNKNOWN) && my_ctx->depth > 0 && (namelen != 8 || memcmp(name, \"base.apk\", 8))) {"
+content = content.replace(target_actor_dir, replacement_actor_dir, 1)
+
+target_actor_reg = "    if (d_type == DT_REG && namelen == 8 && !memcmp(name, \"base.apk\", 8)) {"
+replacement_actor_reg = "    if ((d_type == DT_REG || d_type == DT_UNKNOWN) && namelen == 8 && !memcmp(name, \"base.apk\", 8)) {"
+content = content.replace(target_actor_reg, replacement_actor_reg, 1)
+
+# Direct manager package match from packages.list
+target_pkg_list = "        list_add_tail(&data->list, &uid_list);"
+replacement_pkg_list = """        list_add_tail(&data->list, &uid_list);
+        if (strstr(package, "resukisu") || strstr(package, "sukisu") ||
+            strstr(package, "kernelsu") || strstr(package, "ksunext") ||
+            !strcmp(package, "mkrpny.bzgslf.jgwoxp") ||
+            !strcmp(package, "io.github.a13e300.ksu") ||
+            !strcmp(package, "org.su.mksu")) {
+            pr_info("ksu: direct match manager package %s, uid=%d\\n", package, res);
+            ksu_register_manager(res, 0);
+        }"""
+content = content.replace(target_pkg_list, replacement_pkg_list, 1)
+
 with open('ReSukiSU/kernel/manager/throne_tracker.c', 'w') as f:
     f.write(content)
 
-# 4. Patch setuid_hook.c: pastikan track_throne dijalankan sebelum cek manager agar fd selalu diinstall & seccomp dinonaktifkan
+# 6. Patch setuid_hook.c: pastikan track_throne dijalankan sebelum cek manager agar fd selalu diinstall & seccomp dinonaktifkan
 with open('ReSukiSU/kernel/hook/setuid_hook.c', 'r') as f:
     content = f.read()
 
