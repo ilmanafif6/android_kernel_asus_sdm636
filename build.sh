@@ -128,7 +128,8 @@ if [ -d "${ROOT_DIR}/patches/susfs_v230" ]; then
     log_info "SuSFS v2.3.0 headers & core files diterapkan."
 fi
 
-# Tambahkan bridge kompatibilitas hook legacy kernel ke SuSFS
+# Tambahkan bridge kompatibilitas hook legacy kernel ke SuSFS jika belum ada
+if ! grep -q "ksu_handle_vfs_read" fs/susfs.c; then
 cat << 'EOF' >> fs/susfs.c
 #include <linux/err.h>
 
@@ -145,6 +146,7 @@ int susfs_sus_ino_for_filldir64(unsigned long ino) {
 }
 void susfs_sus_ino_for_show_map_vma(unsigned long ino, dev_t *out_dev, unsigned long *out_ino) {}
 EOF
+fi
 
 # 3. Definisikan ksu.h helper kompatibilitas
 cat << 'EOF' > include/linux/ksu.h
