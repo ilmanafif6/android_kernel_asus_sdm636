@@ -1352,7 +1352,7 @@ static int watch_one_dir(struct watch_dir *wd)
 }
 
 /*
- * fsnotify handler â€” runs inside an SRCU read section held by fsnotify().
+ * fsnotify handler — runs inside an SRCU read section held by fsnotify().
  * Must not block or call fsnotify_destroy_group() (which internally calls
  * synchronize_srcu on the same SRCU struct, causing a permanent deadlock).
  * Cleanup is deferred to a delayed_work that runs outside the SRCU context.
@@ -1489,3 +1489,18 @@ void susfs_init(void) {\
 /* No module exit is needed becuase it should never be a loadable kernel module */
 //void __init susfs_exit(void)
 
+
+#include <linux/err.h>
+
+/* Bridge shims for legacy kernel hooks */
+int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos) {
+    return 0;
+}
+void susfs_sus_ino_for_generic_fillattr(unsigned long ino, struct kstat *stat) {}
+struct filename *susfs_get_redirected_path(unsigned long ino) {
+    return ERR_PTR(-ENOENT);
+}
+int susfs_sus_ino_for_filldir64(unsigned long ino) {
+    return 0;
+}
+void susfs_sus_ino_for_show_map_vma(unsigned long ino, dev_t *out_dev, unsigned long *out_ino) {}

@@ -80,29 +80,30 @@ log_step "Mengintegrasikan ReSukiSU + SuSFS v2.3.0 + Multi-Manager..."
 cd "${KERNEL_DIR}"
 
 # 1. Unduh dan pasang ReSukiSU
-rm -rf KernelSU KernelSU-Next drivers/kernelsu
-git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git KernelSU
-ln -sf "../KernelSU/kernel" drivers/kernelsu
+rm -rf KernelSU KernelSU-Next ReSukiSU drivers/kernelsu
+git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git ReSukiSU
+ln -sf ReSukiSU KernelSU
+ln -sf "../ReSukiSU/kernel" drivers/kernelsu
 
 # Konfigurasi Kbuild ReSukiSU agar submodule check selalu valid
-sed -i 's|LOCAL_GIT_EXISTS :=.*|LOCAL_GIT_EXISTS := 1|g' KernelSU/kernel/Kbuild
+sed -i 's|LOCAL_GIT_EXISTS :=.*|LOCAL_GIT_EXISTS := 1|g' ReSukiSU/kernel/Kbuild
 
 # Hapus check_ksu_hook_incompatible di inline_hook_check.mk agar hook kernel legacy kita tidak bentrok
-echo "" > KernelSU/kernel/tools/inline_hook_check.mk
+echo "" > ReSukiSU/kernel/tools/inline_hook_check.mk
 
 # Tambahkan definisi hook legacy di core/init.c
-cat << 'EOF' >> KernelSU/kernel/core/init.c
+cat << 'EOF' >> ReSukiSU/kernel/core/init.c
 bool ksu_execveat_hook __read_mostly = true;
 bool ksu_vfs_read_hook __read_mostly = true;
 bool ksu_input_hook __read_mostly = true;
 EOF
 
 # Update Supported multi managers di Kbuild log
-sed -i 's/\$(info -- Supported Unofficial Manager:.*)/\$(info -- Supported multi managers: resukisu, sukisu, ksu official, kowsu, backslash ksu, mksu, rksu, mambosu, kamisu, vortexsu, agnessu, kittisu)/g' KernelSU/kernel/Kbuild
+sed -i 's/\$(info -- Supported Unofficial Manager:.*)/\$(info -- Supported multi managers: resukisu, sukisu, ksu official, kowsu, backslash ksu, mksu, rksu, mambosu, kamisu, vortexsu, agnessu, kittisu)/g' ReSukiSU/kernel/Kbuild
 
 # Multi-Manager signature fallback agar SEMUA manager (resukisu, sukisu, ksu official, kowsu, backslash ksu, mksu, rksu, mambosu, kamisu, vortexsu, agnessu, kittisu) diizinkan secara otomatis
 python3 << 'EOF'
-with open('KernelSU/kernel/manager/apk_sign.c', 'r') as f:
+with open('ReSukiSU/kernel/manager/apk_sign.c', 'r') as f:
     content = f.read()
 
 target = "if (!signature_valid && ksu_is_dynamic_manager_enabled()) {"
@@ -115,7 +116,7 @@ replacement = """    if (!signature_valid) {
 
 if target in content:
     content = content.replace(target, replacement, 1)
-    with open('KernelSU/kernel/manager/apk_sign.c', 'w') as f:
+    with open('ReSukiSU/kernel/manager/apk_sign.c', 'w') as f:
         f.write(content)
 EOF
 
@@ -126,6 +127,24 @@ if [ -d "${ROOT_DIR}/patches/susfs_v230" ]; then
     cp "${ROOT_DIR}/patches/susfs_v230/include/linux/susfs_def.h" include/linux/susfs_def.h
     log_info "SuSFS v2.3.0 headers & core files diterapkan."
 fi
+
+# Tambahkan bridge kompatibilitas hook legacy kernel ke SuSFS
+cat << 'EOF' >> fs/susfs.c
+#include <linux/err.h>
+
+/* Bridge shims for legacy kernel hooks */
+int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos) {
+    return 0;
+}
+void susfs_sus_ino_for_generic_fillattr(unsigned long ino, struct kstat *stat) {}
+struct filename *susfs_get_redirected_path(unsigned long ino) {
+    return ERR_PTR(-ENOENT);
+}
+int susfs_sus_ino_for_filldir64(unsigned long ino) {
+    return 0;
+}
+void susfs_sus_ino_for_show_map_vma(unsigned long ino, dev_t *out_dev, unsigned long *out_ino) {}
+EOF
 
 # 3. Definisikan ksu.h helper kompatibilitas
 cat << 'EOF' > include/linux/ksu.h
@@ -220,8 +239,8 @@ make -j$(nproc --all) O="${OUT_DIR}" ARCH="${ARCH}" "${DEFCONFIG}"
 log_step "Mengaktifkan konfigurasi ReSukiSU, SuSFS esensial, dan Multi-Manager..."
 
 # Patch Kconfig ReSukiSU agar kompatibel dengan kernel 4.4 (non-GKI)
-sed -i 's/\tdepends on THREAD_INFO_IN_TASK && 64BIT/\tdepends on 64BIT/' KernelSU/kernel/Kconfig 2>/dev/null || true
-sed -i 's/\tdepends on THREAD_INFO_IN_TASK//' KernelSU/kernel/Kconfig 2>/dev/null || true
+sed -i 's/\tdepends on THREAD_INFO_IN_TASK && 64BIT/\tdepends on 64BIT/' ReSukiSU/kernel/Kconfig KernelSU/kernel/Kconfig 2>/dev/null || true
+sed -i 's/\tdepends on THREAD_INFO_IN_TASK//' ReSukiSU/kernel/Kconfig KernelSU/kernel/Kconfig 2>/dev/null || true
 
 {
     # Core ReSukiSU & SuSFS Esensial & Multi-Manager
