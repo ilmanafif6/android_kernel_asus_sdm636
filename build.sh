@@ -80,7 +80,7 @@ log_step "Mengintegrasikan ReSukiSU + SuSFS v2.3.0 + Multi-Manager..."
 cd "${KERNEL_DIR}"
 
 # 1. Unduh dan pasang ReSukiSU
-rm -rf KernelSU drivers/kernelsu
+rm -rf KernelSU KernelSU-Next drivers/kernelsu
 git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git KernelSU
 ln -sf "../KernelSU/kernel" drivers/kernelsu
 

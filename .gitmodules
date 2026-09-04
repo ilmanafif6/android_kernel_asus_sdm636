@@ -1,4 +1,4 @@
-[submodule "KernelSU-Next"]
-	path = KernelSU-Next
-	url = https://github.com/pershoot/KernelSU-Next.git
-	branch = dev-susfs
+[submodule "KernelSU"]
+	path = KernelSU
+	url = https://github.com/ReSukiSU/ReSukiSU.git
+	branch = main
