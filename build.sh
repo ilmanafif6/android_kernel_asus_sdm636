@@ -104,6 +104,9 @@ echo "#define KSU_COMPAT_HAS_SUSFS_FEATURE_SELINUX_HIDE 1" >> ReSukiSU/kernel/co
 # Update Supported multi managers di Kbuild log
 sed -i 's/\$(info -- Supported Unofficial Manager:.*)/\$(info -- Supported multi managers: resukisu, sukisu, ksu official, kowsu, backslash ksu, mksu, rksu, mambosu, kamisu, vortexsu, agnessu, kittisu)/g' ReSukiSU/kernel/Kbuild
 
+# Pastikan ksu.h selalu menyertakan linux/version.h agar makro KERNEL_VERSION selalu terdefinisi
+sed -i '1s/^/#include <linux\/version.h>\n/' ReSukiSU/kernel/include/ksu.h
+
 # Multi-Manager signature fallback agar SEMUA manager (resukisu, sukisu, ksu official, kowsu, backslash ksu, mksu, rksu, mambosu, kamisu, vortexsu, agnessu, kittisu) diizinkan secara otomatis
 python3 << 'EOF'
 with open('ReSukiSU/kernel/manager/apk_sign.c', 'r') as f:
@@ -126,14 +129,15 @@ if target in content:
 with open('ReSukiSU/kernel/manager/manager.c', 'r') as f:
     content = f.read()
 
-header_inc = '#include "throne_tracker.h"\n'
-if header_inc not in content:
-    content = '#include "throne_tracker.h"\n' + content
+target_inc = '#include "manager_identity.h"'
+replacement_inc = '#include "manager_identity.h"\n#include "throne_tracker.h"'
+if target_inc in content and '#include "throne_tracker.h"' not in content:
+    content = content.replace(target_inc, replacement_inc, 1)
 
 target = "bool is_manager(void)\n{\n    return ksu_is_manager_uid(ksu_get_uid_t(current_uid()));\n}"
 replacement = """bool is_manager(void)
 {
-    if (unlikely(list_empty(&ksu_manager_appid_list))) {
+    if (unlikely(!ksu_has_manager())) {
         track_throne(TRACK_THRONE_FORCE_SEARCH_MGR | TRACK_THRONE_FORCE_SYNCHRONOUS);
     }
     return ksu_is_manager_uid(ksu_get_uid_t(current_uid()));
@@ -147,9 +151,10 @@ with open('ReSukiSU/kernel/manager/manager.c', 'w') as f:
 with open('ReSukiSU/kernel/supercall/perm.c', 'r') as f:
     content = f.read()
 
-header_inc = '#include "manager/throne_tracker.h"\n'
-if header_inc not in content:
-    content = '#include "manager/throne_tracker.h"\n' + content
+target_inc = '#include "manager/manager_identity.h"'
+replacement_inc = '#include "manager/manager_identity.h"\n#include "manager/throne_tracker.h"'
+if target_inc in content and '#include "manager/throne_tracker.h"' not in content:
+    content = content.replace(target_inc, replacement_inc, 1)
 
 target = "bool allowed_for_su(void)\n{\n    return is_manager() || ksu_is_allow_uid_for_current(current_uid().val);\n}"
 replacement = """bool allowed_for_su(void)
@@ -168,26 +173,31 @@ with open('ReSukiSU/kernel/supercall/perm.c', 'w') as f:
 with open('ReSukiSU/kernel/manager/throne_tracker.c', 'r') as f:
     content = f.read()
 
-header_inc = '#include "ksu.h"\n'
-if header_inc not in content:
-    content = '#include "ksu.h"\n' + content
+target_inc = '#include <linux/version.h>'
+replacement_inc = '#include <linux/version.h>\n#include "ksu.h"'
+if target_inc in content and '#include "ksu.h"' not in content:
+    content = content.replace(target_inc, replacement_inc, 1)
 
-target = "void do_track_throne(void *data)\n{"
-replacement = """void do_track_throne(void *data)
-{
-    const struct cred *old_cred = override_creds(ksu_cred);"""
+target = "    INIT_LIST_HEAD(&uid_list);"
+replacement = """    const struct cred *old_cred = NULL;
+    if (ksu_cred) {
+        old_cred = override_creds(ksu_cred);
+    }
+    INIT_LIST_HEAD(&uid_list);"""
 content = content.replace(target, replacement, 1)
 
-target_end = "if (diff_map)\n        bitmap_free(diff_map);\n}"
-replacement_end = """if (diff_map)
+target_end = "    if (diff_map)\n        bitmap_free(diff_map);\n}"
+replacement_end = """    if (diff_map)
         bitmap_free(diff_map);
-    revert_creds(old_cred);
+    if (old_cred)
+        revert_creds(old_cred);
 }"""
 content = content.replace(target_end, replacement_end, 1)
 
 with open('ReSukiSU/kernel/manager/throne_tracker.c', 'w') as f:
     f.write(content)
 EOF
+
 
 
 # 2. Terapkan SuSFS v2.3.0 (JackA1ltman baseline)
