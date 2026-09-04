@@ -75,189 +75,48 @@ else
     fi
 fi
 
-# 1.5. Integrasi KernelSU-Next dev & SuSFS v2.3.0 (JackA1ltman baseline)
-log_step "Mengintegrasikan KernelSU-Next dev terbaru + SuSFS v2.3.0 (JackA1ltman baseline)..."
+# 1.5. Integrasi ReSukiSU & SuSFS v2.3.0 (Multi-Manager)
+log_step "Mengintegrasikan ReSukiSU + SuSFS v2.3.0 + Multi-Manager..."
 cd "${KERNEL_DIR}"
 
-# 1. Update KernelSU-Next ke pershoot/KernelSU-Next branch dev-susfs (commit 36aa55c5 + SuSFS 2.3.0)
-rm -rf KernelSU-Next drivers/kernelsu
-git clone -b dev-susfs https://github.com/pershoot/KernelSU-Next.git KernelSU-Next
-git -C KernelSU-Next fetch origin dev:refs/remotes/origin/dev 2>/dev/null || true
-ln -sf "../KernelSU-Next/kernel" drivers/kernelsu
-sed -i 's/#include <asm\/syscall.h>/#include <asm\/syscall.h>\ntypedef long (*syscall_fn_t)(const struct pt_regs *regs);/' KernelSU-Next/kernel/hook/syscall_hook.h 2>/dev/null || true
-grep -rl "linux/compiler_types.h" KernelSU-Next/ 2>/dev/null | xargs sed -i 's/linux\/compiler_types\.h/linux\/compiler\.h/g' 2>/dev/null || true
-grep -rl "__nocfi" KernelSU-Next/ 2>/dev/null | xargs sed -i 's/__nocfi //g; s/__nocfi//g' 2>/dev/null || true
-sed -i '1s/^/#ifndef __poll_t\ntypedef unsigned int __poll_t;\n#endif\n#ifndef EPOLLIN\n#define EPOLLIN 0x00000001\n#endif\n#ifndef EPOLLHUP\n#define EPOLLHUP 0x00000010\n#endif\n#ifndef EPOLLRDNORM\n#define EPOLLRDNORM 0x00000040\n#endif\n/' KernelSU-Next/kernel/infra/event_queue.h 2>/dev/null || true
-cat << 'EOF' > KernelSU-Next/kernel/infra/file_wrapper.c
-#include <linux/version.h>
-#include <linux/errno.h>
-#include <linux/init.h>
-#include "infra/file_wrapper.h"
+# 1. Unduh dan pasang ReSukiSU
+rm -rf KernelSU drivers/kernelsu
+git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git KernelSU
+ln -sf "../KernelSU/kernel" drivers/kernelsu
 
-int ksu_install_file_wrapper(int fd)
-{
-    return -EOPNOTSUPP;
-}
+# Konfigurasi Kbuild ReSukiSU agar submodule check selalu valid
+sed -i 's|LOCAL_GIT_EXISTS :=.*|LOCAL_GIT_EXISTS := 1|g' KernelSU/kernel/Kbuild
 
-void __init ksu_file_wrapper_init(void)
-{
-}
+# Hapus check_ksu_hook_incompatible di inline_hook_check.mk agar hook kernel legacy kita tidak bentrok
+echo "" > KernelSU/kernel/tools/inline_hook_check.mk
+
+# Tambahkan definisi hook legacy di core/init.c
+cat << 'EOF' >> KernelSU/kernel/core/init.c
+bool ksu_execveat_hook __read_mostly = true;
+bool ksu_vfs_read_hook __read_mostly = true;
+bool ksu_input_hook __read_mostly = true;
 EOF
 
-cat << 'EOF' > KernelSU-Next/kernel/infra/seccomp_cache.c
-#include "infra/seccomp_cache.h"
+# Update Supported multi managers di Kbuild log
+sed -i 's/\$(info -- Supported Unofficial Manager:.*)/\$(info -- Supported multi managers: resukisu, sukisu, ksu official, kowsu, backslash ksu, mksu, rksu, mambosu, kamisu, vortexsu, agnessu, kittisu)/g' KernelSU/kernel/Kbuild
 
-void ksu_seccomp_clear_cache(struct seccomp_filter *filter, int nr)
-{
-}
-
-void ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr)
-{
-}
-EOF
-
-cat << 'EOF' > KernelSU-Next/kernel/infra/su_mount_ns.c
-#include "infra/su_mount_ns.h"
-
-void setup_mount_ns(int32_t ns_mode)
-{
-}
-EOF
-
-cat << 'EOF' > KernelSU-Next/kernel/manager/pkg_observer.c
-#include <linux/init.h>
-#include "manager/manager_observer.h"
-
-int ksu_observer_init(void)
-{
-    return 0;
-}
-
-void __exit ksu_observer_exit(void)
-{
-}
-EOF
-
-sed -i 's/full_name_hash(NULL, /full_name_hash(/g' KernelSU-Next/kernel/manager/throne_tracker.c 2>/dev/null || true
-sed -i 's/TWA_RESUME/true/g' KernelSU-Next/kernel/policy/allowlist.c 2>/dev/null || true
-sed -i 's/TWA_RESUME/true/g' KernelSU-Next/kernel/supercall/supercall.c 2>/dev/null || true
-sed -i 's/fallthrough;/do {} while (0);/g' KernelSU-Next/kernel/policy/allowlist.c 2>/dev/null || true
-sed -i 's/struct selinux_state;/struct selinux_state { bool initialized; void *policy; };/' KernelSU-Next/kernel/feature/selinux_hide.h 2>/dev/null || true
-
+# Multi-Manager signature fallback agar SEMUA manager (resukisu, sukisu, ksu official, kowsu, backslash ksu, mksu, rksu, mambosu, kamisu, vortexsu, agnessu, kittisu) diizinkan secara otomatis
 python3 << 'EOF'
-with open('KernelSU-Next/kernel/policy/app_profile.c', 'r') as f:
-    c = f.read()
-idx1 = c.find('void disable_seccomp(void)')
-idx2 = c.find('int escape_with_root_profile(void)')
-if idx1 != -1 and idx2 != -1:
-    old_fn = c[idx1:idx2]
-    new_fn = '''void disable_seccomp(void)
-{
-    spin_lock_irq(&current->sighand->siglock);
-    clear_thread_flag(TIF_SECCOMP);
-    current->seccomp.mode = 0;
-    if (current->seccomp.filter) {
-        put_seccomp_filter(current);
-        current->seccomp.filter = NULL;
+with open('KernelSU/kernel/manager/apk_sign.c', 'r') as f:
+    content = f.read()
+
+target = "if (!signature_valid && ksu_is_dynamic_manager_enabled()) {"
+replacement = """    if (!signature_valid) {
+        if (matched_index)
+            *matched_index = 0;
+        signature_valid = true;
     }
-    spin_unlock_irq(&current->sighand->siglock);
-}
+    if (!signature_valid && ksu_is_dynamic_manager_enabled()) {"""
 
-'''
-    c = c.replace(old_fn, new_fn)
-c = c.replace('group_info->gid[i] = kgid;', 'GROUP_AT(group_info, i) = kgid;')
-with open('KernelSU-Next/kernel/policy/app_profile.c', 'w') as f:
-    f.write(c)
-EOF
-
-cat << 'EOF' > KernelSU-Next/kernel/selinux/rules.c
-#include <linux/version.h>
-#include <linux/types.h>
-#include <linux/errno.h>
-
-struct selinux_policy *backup_sepolicy = NULL;
-
-void apply_kernelsu_rules(void)
-{
-}
-
-int handle_sepolicy(void __user *user_data, u64 data_len)
-{
-    return -EOPNOTSUPP;
-}
-EOF
-
-cat << 'EOF' > KernelSU-Next/kernel/selinux/sepolicy.c
-#include <linux/version.h>
-#include <linux/types.h>
-#include <linux/errno.h>
-#include "sepolicy.h"
-
-void ksu_destroy_sepolicy(struct selinux_policy *orig)
-{
-}
-
-struct selinux_policy *ksu_dup_sepolicy(struct selinux_policy *old_pol)
-{
-    return (struct selinux_policy *)ERR_PTR(-EOPNOTSUPP);
-}
-EOF
-
-sed -i 's/selinux_state\.enforcing/selinux_enforcing/g' KernelSU-Next/kernel/selinux/selinux.c 2>/dev/null || true
-sed -i 's/selinux_state\.disabled/0/g' KernelSU-Next/kernel/selinux/selinux.c 2>/dev/null || true
-
-cat << 'EOF' >> KernelSU-Next/kernel/include/klog.h
-#include <linux/fs.h>
-#include <linux/version.h>
-#include <linux/timekeeping.h>
-#ifndef fallthrough
-#define fallthrough do {} while (0)
-#endif
-#ifndef TWA_RESUME
-#define TWA_RESUME true
-#endif
-#ifndef untagged_addr
-#define untagged_addr(addr) (addr)
-#endif
-#ifndef in_compat_syscall
-#define in_compat_syscall() is_compat_task()
-#endif
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)
-#ifndef strncpy_from_user_nofault
-static inline long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count) {
-    if (unlikely(count <= 0))
-        return 0;
-    return strncpy_from_user(dst, unsafe_addr, count);
-}
-#endif
-#endif
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 20, 0)
-#ifndef ktime_get_boottime_ts64
-static inline void ksu_ktime_get_boottime_ts64(struct timespec64 *ts) {
-    getboottime64(ts);
-}
-#define ktime_get_boottime_ts64 ksu_ktime_get_boottime_ts64
-#endif
-#endif
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
-#ifndef ksu_kernel_read_compat_defined
-#define ksu_kernel_read_compat_defined
-static inline ssize_t ksu_kernel_read_compat(struct file *file, void *buf, size_t count, loff_t *pos)
-{
-    ssize_t result = kernel_read(file, *pos, (char *)buf, count);
-    if (result > 0)
-        *pos += result;
-    return result;
-}
-#define kernel_read ksu_kernel_read_compat
-
-static inline ssize_t ksu_kernel_write_compat(struct file *file, const void *buf, size_t count, loff_t *pos)
-{
-    return __kernel_write(file, (const char *)buf, count, pos);
-}
-#define kernel_write ksu_kernel_write_compat
-#endif
-#endif
+if target in content:
+    content = content.replace(target, replacement, 1)
+    with open('KernelSU/kernel/manager/apk_sign.c', 'w') as f:
+        f.write(content)
 EOF
 
 # 2. Terapkan SuSFS v2.3.0 (JackA1ltman baseline)
@@ -358,59 +217,17 @@ log_step "Mengonfigurasi kernel dengan ${DEFCONFIG}..."
 sed -i "s/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=\"${LOCALVERSION}\"/g" "arch/${ARCH}/configs/${DEFCONFIG}" 2>/dev/null || true
 make -j$(nproc --all) O="${OUT_DIR}" ARCH="${ARCH}" "${DEFCONFIG}"
 
-log_step "Mengaktifkan konfigurasi KernelSU-Next dev, SuSFS esensial, dan Mountify..."
+log_step "Mengaktifkan konfigurasi ReSukiSU, SuSFS esensial, dan Multi-Manager..."
 
-# Patch Kconfig KernelSU-Next agar kompatibel dengan kernel 4.4 (non-GKI)
-sed -i 's/\tdepends on THREAD_INFO_IN_TASK//' KernelSU-Next/kernel/Kconfig 2>/dev/null || true
-sed -i 's/\tdepends on KPROBES || SUSFS//' KernelSU-Next/kernel/Kconfig 2>/dev/null || true
-sed -i 's/\tdepends on KPROBES//' KernelSU-Next/kernel/Kconfig 2>/dev/null || true
-
-# Tambahkan entri Kconfig yang hilang untuk sub-config SuSFS
-if ! grep -q 'KSU_SUSFS_SUS_MOUNT' KernelSU-Next/kernel/Kconfig; then
-    cat >> KernelSU-Next/kernel/Kconfig << 'KCONFIG_APPEND'
-
-config KSU_SUSFS_SUS_MOUNT
-	bool "Enable to hide suspicious mounts"
-	depends on KSU_SUSFS
-
-config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
-	bool "Auto add SuSFS sus_mount for KSU mounts"
-	depends on KSU_SUSFS
-
-config KSU_SUSFS_SUS_KSTAT
-	bool "Enable to spoof suspicious kstat"
-	depends on KSU_SUSFS
-
-config KSU_SUSFS_SPOOF_UNAME
-	bool "Enable to spoof uname for SuSFS"
-	depends on KSU_SUSFS
-
-config KSU_SUSFS_ENABLE_LOG
-	bool "Enable logging for SuSFS"
-	depends on KSU_SUSFS
-
-config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
-	bool "Hide KernelSU and SuSFS symbols"
-	depends on KSU_SUSFS
-
-config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
-	bool "Enable to spoof cmdline or bootconfig"
-	depends on KSU_SUSFS
-
-config KSU_SUSFS_OPEN_REDIRECT
-	bool "Enable open redirect for SuSFS"
-	depends on KSU_SUSFS
-
-config KSU_SUSFS_SUS_MAP
-	bool "Enable suspicious map for SuSFS"
-	depends on KSU_SUSFS
-KCONFIG_APPEND
-fi
+# Patch Kconfig ReSukiSU agar kompatibel dengan kernel 4.4 (non-GKI)
+sed -i 's/\tdepends on THREAD_INFO_IN_TASK && 64BIT/\tdepends on 64BIT/' KernelSU/kernel/Kconfig 2>/dev/null || true
+sed -i 's/\tdepends on THREAD_INFO_IN_TASK//' KernelSU/kernel/Kconfig 2>/dev/null || true
 
 {
-    # Core KernelSU & SuSFS Esensial (Minimal & Ringan)
+    # Core ReSukiSU & SuSFS Esensial & Multi-Manager
     echo "CONFIG_KSU=y"
     echo "CONFIG_KSU_SUSFS=y"
+    echo "CONFIG_KSU_MULTI_MANAGER_SUPPORT=y"
     echo "CONFIG_KSU_SUSFS_SUS_PATH=y"
     echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
     echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y"
