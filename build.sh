@@ -196,7 +196,40 @@ content = content.replace(target_end, replacement_end, 1)
 
 with open('ReSukiSU/kernel/manager/throne_tracker.c', 'w') as f:
     f.write(content)
+
+# 4. Patch setuid_hook.c: pastikan track_throne dijalankan sebelum cek manager agar fd selalu diinstall & seccomp dinonaktifkan
+with open('ReSukiSU/kernel/hook/setuid_hook.c', 'r') as f:
+    content = f.read()
+
+target_inc = '#include "manager/manager_identity.h"'
+replacement_inc = '#include "manager/manager_identity.h"\n#include "manager/throne_tracker.h"'
+if target_inc in content and '#include "manager/throne_tracker.h"' not in content:
+    content = content.replace(target_inc, replacement_inc, 1)
+
+target = "    if (old_uid != new_uid) {\n        pr_info(\"handle_setresuid from %d to %d\\n\", old_uid, new_uid);\n    }"
+replacement = """    if (old_uid != new_uid) {
+        pr_info("handle_setresuid from %d to %d\\n", old_uid, new_uid);
+    }
+
+    if (unlikely(!ksu_has_manager())) {
+        track_throne(TRACK_THRONE_FORCE_SEARCH_MGR | TRACK_THRONE_FORCE_SYNCHRONOUS);
+    }
+
+    if (unlikely(ksu_is_manager_uid(new_uid))) {
+        disable_seccomp();
+        ksu_clear_current_proc_unprivillege();
+        pr_info("install fd for ksu manager(uid=%d)\\n", new_uid);
+        ksu_mark_manager(new_uid);
+        ksu_set_ksud_status(new_uid);
+        ksu_install_fd();
+        return 0;
+    }"""
+content = content.replace(target, replacement, 1)
+
+with open('ReSukiSU/kernel/hook/setuid_hook.c', 'w') as f:
+    f.write(content)
 EOF
+
 
 
 
