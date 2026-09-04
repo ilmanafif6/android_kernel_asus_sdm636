@@ -49,6 +49,18 @@ dump_boot; # use split_boot to skip ramdisk unpack, e.g. for devices with init_b
 write_boot; # use flash_boot to skip ramdisk repack, e.g. for devices with init_boot ramdisk
 ## end boot install
 
+# Install KernelSU userspace daemon (ksud) directly from recovery
+if [ -f $home/tools/ksud ]; then
+    ui_print " "; ui_print "Installing KernelSU daemon (ksud)...";
+    mount /data 2>/dev/null || true
+    mkdir -p /data/adb/ksu/bin
+    cp -f $home/tools/ksud /data/adb/ksud
+    chmod 755 /data/adb/ksud
+    chown 0:0 /data/adb/ksud 2>/dev/null || true
+    $home/tools/ksud install 2>/dev/null || true
+fi
+
+
 
 ## init_boot files attributes
 #init_boot_attributes() {

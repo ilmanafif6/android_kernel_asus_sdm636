@@ -121,7 +121,74 @@ if target in content:
     content = content.replace(target, replacement, 1)
     with open('ReSukiSU/kernel/manager/apk_sign.c', 'w') as f:
         f.write(content)
+
+# 1. Patch manager.c: picu track_throne jika belum ada manager terdaftar
+with open('ReSukiSU/kernel/manager/manager.c', 'r') as f:
+    content = f.read()
+
+header_inc = '#include "throne_tracker.h"\n'
+if header_inc not in content:
+    content = '#include "throne_tracker.h"\n' + content
+
+target = "bool is_manager(void)\n{\n    return ksu_is_manager_uid(ksu_get_uid_t(current_uid()));\n}"
+replacement = """bool is_manager(void)
+{
+    if (unlikely(list_empty(&ksu_manager_appid_list))) {
+        track_throne(TRACK_THRONE_FORCE_SEARCH_MGR | TRACK_THRONE_FORCE_SYNCHRONOUS);
+    }
+    return ksu_is_manager_uid(ksu_get_uid_t(current_uid()));
+}"""
+content = content.replace(target, replacement, 1)
+
+with open('ReSukiSU/kernel/manager/manager.c', 'w') as f:
+    f.write(content)
+
+# 2. Patch perm.c: picu track_throne jika allowed_for_su dipanggil sebelum manager terdaftar
+with open('ReSukiSU/kernel/supercall/perm.c', 'r') as f:
+    content = f.read()
+
+header_inc = '#include "manager/throne_tracker.h"\n'
+if header_inc not in content:
+    content = '#include "manager/throne_tracker.h"\n' + content
+
+target = "bool allowed_for_su(void)\n{\n    return is_manager() || ksu_is_allow_uid_for_current(current_uid().val);\n}"
+replacement = """bool allowed_for_su(void)
+{
+    if (unlikely(!is_manager())) {
+        track_throne(TRACK_THRONE_FORCE_SEARCH_MGR | TRACK_THRONE_FORCE_SYNCHRONOUS);
+    }
+    return is_manager() || ksu_is_allow_uid_for_current(current_uid().val);
+}"""
+content = content.replace(target, replacement, 1)
+
+with open('ReSukiSU/kernel/supercall/perm.c', 'w') as f:
+    f.write(content)
+
+# 3. Patch throne_tracker.c: pastikan do_track_throne menggunakan root creds (override_creds)
+with open('ReSukiSU/kernel/manager/throne_tracker.c', 'r') as f:
+    content = f.read()
+
+header_inc = '#include "ksu.h"\n'
+if header_inc not in content:
+    content = '#include "ksu.h"\n' + content
+
+target = "void do_track_throne(void *data)\n{"
+replacement = """void do_track_throne(void *data)
+{
+    const struct cred *old_cred = override_creds(ksu_cred);"""
+content = content.replace(target, replacement, 1)
+
+target_end = "if (diff_map)\n        bitmap_free(diff_map);\n}"
+replacement_end = """if (diff_map)
+        bitmap_free(diff_map);
+    revert_creds(old_cred);
+}"""
+content = content.replace(target_end, replacement_end, 1)
+
+with open('ReSukiSU/kernel/manager/throne_tracker.c', 'w') as f:
+    f.write(content)
 EOF
+
 
 # 2. Terapkan SuSFS v2.3.0 (JackA1ltman baseline)
 if [ -d "${ROOT_DIR}/patches/susfs_v230" ]; then
@@ -322,6 +389,13 @@ fi
 
 # Salin kernel image ke AnyKernel3
 cp -f "${IMAGE_GZ_DTB}" "${ANYKERNEL_DIR}/Image.gz-dtb"
+
+# Salin ksud daemon ke AnyKernel3 tools
+if [ -f "${ROOT_DIR}/anykernel/tools/ksud" ]; then
+    mkdir -p "${ANYKERNEL_DIR}/tools"
+    cp -f "${ROOT_DIR}/anykernel/tools/ksud" "${ANYKERNEL_DIR}/tools/ksud"
+    chmod 755 "${ANYKERNEL_DIR}/tools/ksud"
+fi
 
 # Masuk ke AnyKernel dan buat file zip
 cd "${ANYKERNEL_DIR}"
