@@ -199,9 +199,9 @@ with open('ReSukiSU/kernel/supercall/supercall.c', 'r') as f:
 target_hdr = '#include "supercall/internal.h"'
 replacement_hdr = """#include "supercall/internal.h"
 #include "manager/manager_identity.h"
-#include "runtime/ksud.h"
-extern void disable_seccomp(void);
-extern void ksu_clear_current_proc_unprivillege(void);"""
+#include "policy/app_profile.h"
+#include "feature/sucompat.h"
+#include "runtime/ksud.h\""""
 if target_hdr in content and 'disable_seccomp' not in content:
     content = content.replace(target_hdr, replacement_hdr, 1)
 
@@ -219,7 +219,6 @@ replacement_reboot = """    // Check if this is a request to install KSU fd
             pr_info("ksu: auto-crowning manager via sys_reboot: uid=%d\\n", uid);
             ksu_register_manager(uid, 0);
             ksu_mark_manager(uid);
-            ksu_set_ksud_status(uid);
         }
         ksu_install_fd_to_user((int __user *)*arg);
         return 0;
