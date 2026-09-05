@@ -12,8 +12,9 @@ Source kernel untuk Asus ZenFone Max Pro M1 (**X00TD** / **X00T**) dengan integr
 - **Kernel Base**: Linux 4.4.302 (CLO `LA.UM.9.2.r1-03700-SDMxx0.0`)
 - **Default Branch**: `HMP`
 - **Defconfig**: `vendor/asus/X00TD_defconfig` (CONFIG_LOCALVERSION="-AlphaCore-HMP")
-- **Root Solution**: KernelSU-Next dev (branch `dev-susfs` commit `36aa55c5`, version code `33254`)
-- **Root Hiding**: SuSFS `v2.3.0` (JackA1ltman baseline)
+- **Root Solution**: ReSukiSU `v4.2.0-rc1` (version code `35117`)
+- **Root Hiding**: SuSFS `v2.3.0` (Multi-Manager & Full Inline Hooks)
+- **Status**: Berfungsi (Built-in) + Permissive runtime SELinux injection
 - **Compiler**: TRB Clang 17 / LLVM
 - **Supported Android**: 9.0 (Pie) hingga 14.0
 
