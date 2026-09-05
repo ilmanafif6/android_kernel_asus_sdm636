@@ -88,16 +88,6 @@ ln -sf "../ReSukiSU/kernel" drivers/kernelsu
 # Konfigurasi Kbuild ReSukiSU agar submodule check selalu valid
 sed -i 's|LOCAL_GIT_EXISTS :=.*|LOCAL_GIT_EXISTS := 1|g' ReSukiSU/kernel/Kbuild
 
-# Hapus check_ksu_hook_incompatible di inline_hook_check.mk agar hook kernel legacy kita tidak bentrok
-echo "" > ReSukiSU/kernel/tools/inline_hook_check.mk
-
-# Tambahkan definisi hook legacy di core/init.c
-cat << 'EOF' >> ReSukiSU/kernel/core/init.c
-bool ksu_execveat_hook __read_mostly = true;
-bool ksu_vfs_read_hook __read_mostly = true;
-bool ksu_input_hook __read_mostly = true;
-EOF
-
 # Hindari memory patching berbahaya di ReSukiSU saat boot non-GKI 4.4
 echo "#define KSU_COMPAT_HAS_SUSFS_FEATURE_SELINUX_HIDE 1" >> ReSukiSU/kernel/compat/kernel_compat.h
 
@@ -115,24 +105,10 @@ if [ -d "${ROOT_DIR}/patches/susfs_v230" ]; then
     log_info "SuSFS v2.3.0 headers & core files diterapkan."
 fi
 
-# Tambahkan bridge kompatibilitas hook legacy kernel ke SuSFS jika belum ada
-if ! grep -q "ksu_handle_vfs_read" fs/susfs.c; then
-cat << 'EOF' >> fs/susfs.c
-#include <linux/err.h>
-
-/* Bridge shims for legacy kernel hooks */
-int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos) {
-    return 0;
-}
-void susfs_sus_ino_for_generic_fillattr(unsigned long ino, struct kstat *stat) {}
-struct filename *susfs_get_redirected_path(unsigned long ino) {
-    return ERR_PTR(-ENOENT);
-}
-int susfs_sus_ino_for_filldir64(unsigned long ino) {
-    return 0;
-}
-void susfs_sus_ino_for_show_map_vma(unsigned long ino, dev_t *out_dev, unsigned long *out_ino) {}
-EOF
+# 2.5. Pastikan inline hooks terpasang jika belum ada di tree
+if [ -f "${ROOT_DIR}/patches/susfs_inline_hook_patches.sh" ] && ! grep -q "ksu_handle_execveat" fs/exec.c; then
+    log_step "Menerapkan inline hook patches SuSFS..."
+    bash "${ROOT_DIR}/patches/susfs_inline_hook_patches.sh"
 fi
 
 # 3. Definisikan ksu.h helper kompatibilitas
